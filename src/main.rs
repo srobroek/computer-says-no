@@ -3,6 +3,7 @@ mod config;
 mod model;
 mod reference_set;
 mod server;
+mod watcher;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};

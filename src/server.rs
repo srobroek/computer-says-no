@@ -121,6 +121,9 @@ pub async fn serve(config: &AppConfig) -> anyhow::Result<()> {
         sets_dir: sets_dir.clone(),
     });
 
+    // Start file watcher for hot-reload
+    let _watcher = crate::watcher::start_watcher(state.clone())?;
+
     let app = Router::new()
         .route("/classify", post(handle_classify))
         .route("/embed", post(handle_embed))
