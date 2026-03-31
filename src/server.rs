@@ -264,9 +264,7 @@ async fn handle_health(
     }))
 }
 
-async fn handle_sets(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<Vec<SetInfo>>, AppError> {
+async fn handle_sets(State(state): State<Arc<AppState>>) -> Result<Json<Vec<SetInfo>>, AppError> {
     let sets = state
         .sets
         .read()
