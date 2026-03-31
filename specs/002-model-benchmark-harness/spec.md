@@ -19,8 +19,9 @@ A developer wants to choose the best embedding model for their use case. They ru
 
 1. **Given** labeled datasets exist in the datasets directory, **When** the user runs `csn benchmark`, **Then** the system tests each model against each dataset and outputs a comparison matrix with accuracy and latency metrics.
 2. **Given** the benchmark is running, **When** a model is first loaded, **Then** the system performs warm-up iterations before measuring, ensuring cold startup is excluded from latency metrics.
-3. **Given** the benchmark completes, **When** the user views the results, **Then** each cell in the matrix shows accuracy percentage, and latency at p50/p95/p99.
+3. **Given** the benchmark completes, **When** the user views the results, **Then** each cell in the matrix shows accuracy percentage, warm latency at p50/p95/p99, and cold startup time.
 4. **Given** the user wants machine-readable output, **When** they pass `--json`, **Then** the results are output as structured JSON.
+5. **Given** a model is being benchmarked, **When** the system measures cold startup, **Then** it records the time from model load initiation to first successful embedding, separately from warm latency.
 
 ---
 
@@ -88,7 +89,8 @@ A developer wants to track benchmark results over time to detect regressions. Th
 - **FR-002**: System MUST test all 12 supported models unless filtered by `--model`.
 - **FR-003**: System MUST test all available labeled datasets unless filtered by `--dataset`.
 - **FR-004**: System MUST warm each model before measurement by running a configurable number of warm-up iterations (default: 5) to exclude cold startup from latency.
-- **FR-005**: System MUST measure classification latency per iteration and report p50, p95, and p99 percentiles.
+- **FR-005**: System MUST measure warm classification latency per iteration and report p50, p95, and p99 percentiles.
+- **FR-005a**: System MUST measure cold startup latency per model (time from model load to first successful embedding) and include it in results.
 - **FR-006**: System MUST compute accuracy as the percentage of correctly classified prompts per model-dataset combination.
 - **FR-007**: System MUST output results as a human-readable comparison matrix to stdout by default.
 - **FR-008**: System MUST support `--json` for machine-readable output containing all metrics.
@@ -103,7 +105,7 @@ A developer wants to track benchmark results over time to detect regressions. Th
 
 - **Benchmark Run**: A complete execution covering one or more model-dataset combinations, with configuration (warm-up count, iterations) and timestamp.
 - **Labeled Dataset**: A JSON file containing an array of test entries, each with input text, expected classification result, and metadata about the reference set.
-- **Benchmark Result**: Per model-dataset combination: accuracy percentage, latency percentiles (p50/p95/p99), iteration count, and model metadata (name, dimensions).
+- **Benchmark Result**: Per model-dataset combination: accuracy percentage, warm latency percentiles (p50/p95/p99), cold startup time, iteration count, and model metadata (name, dimensions).
 
 ## Success Criteria *(mandatory)*
 
