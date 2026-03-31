@@ -94,6 +94,167 @@ pub fn coefficient_of_variation(durations: &[Duration]) -> f64 {
     variance.sqrt() / mean
 }
 
+/// Scoring strategy for the benchmark.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScoringStrategy {
+    /// Original: pos_score >= threshold && pos_score > neg_score
+    Threshold,
+    /// Margin-based: (pos_score - neg_score) > margin
+    Margin(u32), // margin × 1000 (stored as int to derive Eq)
+    /// Adaptive: threshold calibrated from negative score distribution
+    Adaptive,
+}
+
+impl ScoringStrategy {
+    pub fn margin(m: f32) -> Self {
+        Self::Margin((m * 1000.0) as u32)
+    }
+
+    pub fn name(&self) -> String {
+        match self {
+            Self::Threshold => "threshold".to_string(),
+            Self::Margin(m) => format!("margin-{:.2}", *m as f32 / 1000.0),
+            Self::Adaptive => "adaptive".to_string(),
+        }
+    }
+}
+
+/// Reinterpret a classification result using a different scoring strategy.
+fn apply_strategy(
+    result: &crate::classifier::ClassifyResult,
+    strategy: ScoringStrategy,
+    adaptive_threshold: f32,
+) -> bool {
+    match result {
+        crate::classifier::ClassifyResult::Binary(r) => match strategy {
+            ScoringStrategy::Threshold => r.is_match,
+            ScoringStrategy::Margin(m) => {
+                let margin = m as f32 / 1000.0;
+                (r.scores.positive - r.scores.negative) > margin
+            }
+            ScoringStrategy::Adaptive => {
+                r.scores.positive >= adaptive_threshold && r.scores.positive > r.scores.negative
+            }
+        },
+        crate::classifier::ClassifyResult::MultiCategory(r) => match strategy {
+            ScoringStrategy::Threshold => r.is_match,
+            ScoringStrategy::Margin(m) => {
+                let margin = m as f32 / 1000.0;
+                if r.all_scores.len() < 2 {
+                    return r.confidence > margin;
+                }
+                (r.all_scores[0].score - r.all_scores[1].score) > margin
+            }
+            ScoringStrategy::Adaptive => r.confidence >= adaptive_threshold,
+        },
+    }
+}
+
+/// Calibrate adaptive threshold from negative prompts' scores.
+pub fn calibrate_adaptive_threshold(
+    engine: &mut crate::model::EmbeddingEngine,
+    ref_set: &crate::reference_set::ReferenceSet,
+    negative_prompts: &[&LabeledPrompt],
+) -> f32 {
+    if negative_prompts.is_empty() {
+        return 0.5;
+    }
+
+    let mut pos_scores: Vec<f32> = Vec::new();
+    for prompt in negative_prompts {
+        if let Ok(result) = classifier::classify_text(engine, &prompt.text, ref_set) {
+            match &result {
+                classifier::ClassifyResult::Binary(r) => pos_scores.push(r.scores.positive),
+                classifier::ClassifyResult::MultiCategory(r) => pos_scores.push(r.confidence),
+            }
+        }
+    }
+
+    pos_scores.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    if pos_scores.is_empty() {
+        return 0.5;
+    }
+
+    // 95th percentile of negative scores = adaptive threshold
+    let idx = ((pos_scores.len() - 1) as f64 * 0.95) as usize;
+    let threshold = pos_scores[idx.min(pos_scores.len() - 1)];
+    tracing::info!(
+        threshold,
+        negatives = pos_scores.len(),
+        "calibrated adaptive threshold"
+    );
+    threshold
+}
+
+/// Check if a classification result is correct using a specific strategy.
+pub fn is_correct_with_strategy(
+    result: &crate::classifier::ClassifyResult,
+    prompt: &LabeledPrompt,
+    strategy: ScoringStrategy,
+    adaptive_threshold: f32,
+) -> bool {
+    let matched = apply_strategy(result, strategy, adaptive_threshold);
+    match prompt.polarity {
+        Polarity::Positive => matched == (prompt.expected_label != "no_match"),
+        Polarity::Negative => !matched,
+    }
+}
+
+/// Compare scoring strategies on a dataset. Returns accuracy per strategy.
+pub fn compare_strategies(
+    engine: &mut crate::model::EmbeddingEngine,
+    ref_set: &crate::reference_set::ReferenceSet,
+    dataset: &LabeledDataset,
+) -> Vec<(String, f64)> {
+    // Collect negative prompts for adaptive calibration
+    let neg_prompts: Vec<&LabeledPrompt> = dataset
+        .prompts
+        .iter()
+        .filter(|p| p.polarity == Polarity::Negative)
+        .collect();
+
+    let adaptive_threshold = calibrate_adaptive_threshold(engine, ref_set, &neg_prompts);
+
+    let strategies = vec![
+        ScoringStrategy::Threshold,
+        ScoringStrategy::margin(0.02),
+        ScoringStrategy::margin(0.05),
+        ScoringStrategy::margin(0.10),
+        ScoringStrategy::margin(0.15),
+        ScoringStrategy::Adaptive,
+    ];
+
+    // Classify all prompts once
+    let results: Vec<_> = dataset
+        .prompts
+        .iter()
+        .filter_map(|p| {
+            classifier::classify_text(engine, &p.text, ref_set)
+                .ok()
+                .map(|r| (p, r))
+        })
+        .collect();
+
+    strategies
+        .iter()
+        .map(|&strategy| {
+            let correct = results
+                .iter()
+                .filter(|(prompt, result)| {
+                    is_correct_with_strategy(result, prompt, strategy, adaptive_threshold)
+                })
+                .count();
+            let accuracy = if results.is_empty() {
+                0.0
+            } else {
+                correct as f64 / results.len() as f64
+            };
+            (strategy.name(), accuracy)
+        })
+        .collect()
+}
+
 /// Check if a classification result is correct for a labeled prompt.
 pub fn is_correct(
     result: &crate::classifier::ClassifyResult,

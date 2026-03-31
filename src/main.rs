@@ -165,6 +165,21 @@ enum BenchmarkAction {
         datasets_dir: Option<PathBuf>,
     },
 
+    /// Compare scoring strategies on a dataset
+    CompareStrategies {
+        /// Model to test with
+        #[arg(long, default_value = "bge-small-en-v1.5-Q")]
+        model: ModelChoice,
+
+        /// Dataset to test
+        #[arg(long)]
+        dataset: String,
+
+        /// Path to datasets directory
+        #[arg(long)]
+        datasets_dir: Option<PathBuf>,
+    },
+
     /// Generate labeled test datasets from reference sets
     GenerateDatasets {
         /// Path to reference sets directory
@@ -299,6 +314,18 @@ fn main() -> Result<()> {
                     output,
                     compare,
                 )
+            }
+            BenchmarkAction::CompareStrategies {
+                model,
+                dataset,
+                datasets_dir,
+            } => {
+                let config = AppConfig::load(CliOverrides {
+                    datasets_dir,
+                    ..Default::default()
+                })?;
+                init_tracing(&config.log_level);
+                cmd_compare_strategies(&config, model, &dataset)
             }
             BenchmarkAction::GenerateDatasets {
                 sets_dir,
@@ -584,6 +611,45 @@ fn cmd_benchmark_run(
         let prev_run: benchmark::BenchmarkRun = serde_json::from_str(&prev_json)
             .with_context(|| format!("parsing previous results from {}", path.display()))?;
         benchmark::print_comparison(&run, &prev_run);
+    }
+
+    Ok(())
+}
+
+fn cmd_compare_strategies(
+    config: &AppConfig,
+    model_choice: ModelChoice,
+    dataset_name: &str,
+) -> Result<()> {
+    let ds_path = config.datasets_dir.join(format!("{dataset_name}.json"));
+    let ds = dataset::load_dataset(&ds_path)?;
+
+    let sets_dir = config.resolve_sets_dir();
+    let mut engine = model::EmbeddingEngine::new(
+        model_choice,
+        Some(config.cache_dir.join(model_choice.as_str())),
+    )?;
+    let sets =
+        reference_set::load_all_reference_sets(&sets_dir, &mut engine, Some(&config.cache_dir))?;
+
+    let ref_set = sets
+        .iter()
+        .find(|s| s.metadata.name == ds.reference_set)
+        .with_context(|| format!("reference set '{}' not found", ds.reference_set))?;
+
+    println!(
+        "Comparing strategies: {} × {} ({} prompts)\n",
+        model_choice,
+        dataset_name,
+        ds.prompts.len()
+    );
+
+    let results = benchmark::compare_strategies(&mut engine, ref_set, &ds);
+
+    println!("{:<20} {:>10}", "Strategy", "Accuracy");
+    println!("{}", "-".repeat(32));
+    for (name, accuracy) in &results {
+        println!("{:<20} {:>9.1}%", name, accuracy * 100.0);
     }
 
     Ok(())
