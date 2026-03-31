@@ -91,13 +91,19 @@ A developer wants to track benchmark results over time to detect regressions. Th
 - **FR-004**: System MUST warm each model before measurement by running a configurable number of warm-up iterations (default: 5) to exclude cold startup from latency.
 - **FR-005**: System MUST measure warm classification latency across 20 measured iterations per prompt (configurable via `--iterations`) and report p50, p95, and p99 percentiles.
 - **FR-005a**: System MUST measure cold startup latency per model (time from model load to first successful embedding) and include it in results.
-- **FR-006**: System MUST compute accuracy as the percentage of correctly classified prompts per model-dataset combination.
+- **FR-006**: System MUST compute accuracy as the percentage of correctly classified prompts per model-dataset combination, with per-tier breakdown (clear/moderate/edge) in detailed output.
 - **FR-007**: System MUST output results as a human-readable comparison matrix to stdout by default.
 - **FR-008**: System MUST support `--json` for machine-readable output containing all metrics.
 - **FR-009**: System MUST support `--output <path>` to save results to a file.
 - **FR-010**: System MUST provide a `csn benchmark generate-datasets` subcommand that creates labeled test datasets.
-- **FR-011**: System MUST generate at least 50 labeled prompts per reference set using LLM-based generation from reference set phrases as seeds, covering both positive matches and negative/non-matching examples.
-- **FR-012**: System MUST store datasets as JSON files in the datasets directory with text, expected label, and reference set name.
+- **FR-011**: System MUST generate at least 500 labeled prompts per reference set using LLM-based generation from reference set phrases as seeds, distributed across three difficulty tiers for both positive and negative examples (6 buckets, ~83 each).
+- **FR-011a**: Clear positive (~83): unambiguous matches where the correct label is obvious (baseline recall).
+- **FR-011b**: Moderate positive (~83): clearly the right label but with some semantic overlap (tests recall under ambiguity).
+- **FR-011c**: Edge positive (~83): borderline matches close to the decision boundary — soft corrections vs suggestions, commit messages straddling categories (differentiates model recall).
+- **FR-011d**: Clear negative (~83): completely unrelated text — off-topic questions, greetings, random statements (baseline precision).
+- **FR-011e**: Moderate negative (~83): topically related but not a match — asking about the topic rather than being an instance of it (tests precision under relevance).
+- **FR-011f**: Edge negative (~83): semantically close to a match but should not trigger — false-positive traps that test model discrimination (differentiates model precision).
+- **FR-012**: System MUST store datasets as JSON files in the datasets directory with text, expected label, difficulty tier, and reference set name.
 - **FR-013**: System MUST support `--compare <path>` to diff results against a previous benchmark run, highlighting regressions.
 - **FR-014**: System MUST display a progress indicator during benchmark execution showing current model, dataset, and iteration count.
 
@@ -111,11 +117,11 @@ A developer wants to track benchmark results over time to detect regressions. Th
 
 ### Measurable Outcomes
 
-- **SC-001**: Users can compare all 12 models across all datasets in a single command and receive a ranked comparison within 10 minutes.
+- **SC-001**: Users can compare all 12 models across all datasets in a single command and receive a ranked comparison within 30 minutes. Single-model runs complete within 3 minutes.
 - **SC-002**: Latency measurements exclude cold startup — the coefficient of variation for warm latency across iterations MUST be below 30% (stable measurement).
 - **SC-003**: The corrections dataset achieves at least 85% accuracy with the best-performing model.
 - **SC-004**: The commit-types dataset achieves at least 80% accuracy with the best-performing model.
-- **SC-005**: Each generated dataset contains at least 50 labeled prompts with balanced positive/negative (binary) or category (multi-category) distribution.
+- **SC-005**: Each generated dataset contains at least 500 labeled prompts across 6 difficulty tiers (3 positive, 3 negative), with roughly equal distribution per tier (~83 each). Per-tier accuracy confidence interval MUST be under ±8% at 95% confidence.
 - **SC-006**: Benchmark results are reproducible — running the same benchmark twice on the same machine produces accuracy within 1% and latency within 20%.
 
 ## Clarifications
@@ -124,6 +130,7 @@ A developer wants to track benchmark results over time to detect regressions. Th
 
 - Q: How should labeled datasets be generated? → A: LLM-generated from reference set phrases as seeds, with labels derived from generation context. Parallelizable per reference set via subagents.
 - Q: How many measured iterations per prompt for latency percentiles? → A: 20 iterations per prompt (default), configurable via `--iterations` flag.
+- Q: Should datasets include negative examples? → A: Yes. 3 difficulty tiers for both positives and negatives (6 buckets total: clear/moderate/edge × positive/negative). Tests both recall and precision, with edge tiers differentiating model quality.
 
 ## Assumptions
 
