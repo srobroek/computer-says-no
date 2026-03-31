@@ -20,27 +20,29 @@ csn classify <TEXT> --set <NAME> [--json] [--model <MODEL>] [--sets-dir <PATH>] 
 ### csn embed
 
 ```
-csn embed <TEXT> [--model <MODEL>]
+csn embed <TEXT> [--model <MODEL>] [--standalone]
 ```
 
 - Connects to daemon for embedding
+- `--standalone`: load model in-process, embed without daemon
 - Output: JSON with embedding vector, dimensions, model name
-- If daemon unreachable: exit code 1
+- If daemon unreachable: exit code 1, suggesting `csn serve` or `--standalone`
 
 ### csn similarity
 
 ```
-csn similarity <A> <B> [--model <MODEL>]
+csn similarity <A> <B> [--model <MODEL>] [--standalone]
 ```
 
 - Connects to daemon
+- `--standalone`: load model in-process, compute without daemon
 - Output: decimal similarity score (e.g., `0.7515`)
-- If daemon unreachable: exit code 1
+- If daemon unreachable: exit code 1, suggesting `csn serve` or `--standalone`
 
 ### csn serve
 
 ```
-csn serve [--port <PORT>] [--model <MODEL>] [--sets-dir <PATH>]
+csn serve [--port <PORT>] [--model <MODEL>] [--sets-dir <PATH>] [--log-level <LEVEL>]
 ```
 
 - Starts daemon on 127.0.0.1:{port}

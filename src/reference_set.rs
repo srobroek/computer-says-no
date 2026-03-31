@@ -3,6 +3,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::embedding_cache::{self, CachedEmbeddings, EmbeddingGroup};
 use crate::model::{Embedding, EmbeddingEngine};
 
 /// Classification mode for a reference set.
@@ -95,7 +96,12 @@ impl ReferenceSet {
 }
 
 /// Load and embed a reference set from a TOML file.
-pub fn load_reference_set(path: &Path, engine: &mut EmbeddingEngine) -> Result<ReferenceSet> {
+/// If `cache_dir` is provided, cached embeddings are used when the content hash matches.
+pub fn load_reference_set(
+    path: &Path,
+    engine: &mut EmbeddingEngine,
+    cache_dir: Option<&Path>,
+) -> Result<ReferenceSet> {
     let content =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
 
@@ -103,6 +109,16 @@ pub fn load_reference_set(path: &Path, engine: &mut EmbeddingEngine) -> Result<R
 
     let file: ReferenceSetFile =
         toml::from_str(&content).with_context(|| format!("parsing {}", path.display()))?;
+
+    // Try loading from cache
+    let cached = cache_dir.and_then(|dir| {
+        embedding_cache::load_cache(
+            dir,
+            engine.model().as_str(),
+            &content_hash,
+            engine.dimensions(),
+        )
+    });
 
     let kind = match file.metadata.mode {
         Mode::Binary => {
@@ -119,16 +135,26 @@ pub fn load_reference_set(path: &Path, engine: &mut EmbeddingEngine) -> Result<R
                 path.display()
             );
 
-            let positive = embed_phrases(engine, &phrases.positive)?;
-            let negative_phrases = phrases.negative.unwrap_or_default();
-            let negative = embed_phrases(engine, &negative_phrases)?;
-
-            ReferenceSetKind::Binary(BinaryEmbeddings {
-                positive,
-                positive_phrases: phrases.positive,
-                negative,
-                negative_phrases,
-            })
+            if let Some(ref c) = cached {
+                // Restore from cache: expect groups named "positive" and optionally "negative"
+                let pos = c.groups.iter().find(|g| g.name == "positive");
+                let neg = c.groups.iter().find(|g| g.name == "negative");
+                if let Some(pos) = pos {
+                    let negative_phrases = phrases.negative.clone().unwrap_or_default();
+                    ReferenceSetKind::Binary(BinaryEmbeddings {
+                        positive: pos.embeddings.clone(),
+                        positive_phrases: pos.phrases.clone(),
+                        negative: neg.map(|n| n.embeddings.clone()).unwrap_or_default(),
+                        negative_phrases,
+                    })
+                } else {
+                    embed_binary(engine, phrases)?
+                }
+            } else {
+                let kind = embed_binary(engine, phrases)?;
+                save_binary_cache(cache_dir, engine, &content_hash, &kind);
+                kind
+            }
         }
         Mode::MultiCategory => {
             let categories = file.categories.with_context(|| {
@@ -153,21 +179,25 @@ pub fn load_reference_set(path: &Path, engine: &mut EmbeddingEngine) -> Result<R
                 );
             }
 
-            let mut cat_embeddings = HashMap::new();
-            for (name, cat) in &categories {
-                let embeddings = embed_phrases(engine, &cat.phrases)?;
-                cat_embeddings.insert(
-                    name.clone(),
-                    CategoryEmbeddings {
-                        embeddings,
-                        phrases: cat.phrases.clone(),
-                    },
-                );
+            if let Some(c) = cached {
+                let mut cat_embeddings = HashMap::new();
+                for group in &c.groups {
+                    cat_embeddings.insert(
+                        group.name.clone(),
+                        CategoryEmbeddings {
+                            embeddings: group.embeddings.clone(),
+                            phrases: group.phrases.clone(),
+                        },
+                    );
+                }
+                ReferenceSetKind::MultiCategory(MultiCategoryEmbeddings {
+                    categories: cat_embeddings,
+                })
+            } else {
+                let kind = embed_multi_category(engine, &categories)?;
+                save_multi_cache(cache_dir, engine, &content_hash, &kind);
+                kind
             }
-
-            ReferenceSetKind::MultiCategory(MultiCategoryEmbeddings {
-                categories: cat_embeddings,
-            })
         }
     };
 
@@ -179,10 +209,103 @@ pub fn load_reference_set(path: &Path, engine: &mut EmbeddingEngine) -> Result<R
     })
 }
 
+fn embed_binary(engine: &mut EmbeddingEngine, phrases: BinaryPhrases) -> Result<ReferenceSetKind> {
+    let positive = embed_phrases(engine, &phrases.positive)?;
+    let negative_phrases = phrases.negative.unwrap_or_default();
+    let negative = embed_phrases(engine, &negative_phrases)?;
+    Ok(ReferenceSetKind::Binary(BinaryEmbeddings {
+        positive,
+        positive_phrases: phrases.positive,
+        negative,
+        negative_phrases,
+    }))
+}
+
+fn embed_multi_category(
+    engine: &mut EmbeddingEngine,
+    categories: &HashMap<String, CategoryPhrases>,
+) -> Result<ReferenceSetKind> {
+    let mut cat_embeddings = HashMap::new();
+    for (name, cat) in categories {
+        let embeddings = embed_phrases(engine, &cat.phrases)?;
+        cat_embeddings.insert(
+            name.clone(),
+            CategoryEmbeddings {
+                embeddings,
+                phrases: cat.phrases.clone(),
+            },
+        );
+    }
+    Ok(ReferenceSetKind::MultiCategory(MultiCategoryEmbeddings {
+        categories: cat_embeddings,
+    }))
+}
+
+fn save_binary_cache(
+    cache_dir: Option<&Path>,
+    engine: &EmbeddingEngine,
+    content_hash: &str,
+    kind: &ReferenceSetKind,
+) {
+    let Some(dir) = cache_dir else { return };
+    let ReferenceSetKind::Binary(b) = kind else {
+        return;
+    };
+    let cached = CachedEmbeddings {
+        dimensions: engine.dimensions(),
+        groups: vec![
+            EmbeddingGroup {
+                name: "positive".to_string(),
+                phrases: b.positive_phrases.clone(),
+                embeddings: b.positive.clone(),
+            },
+            EmbeddingGroup {
+                name: "negative".to_string(),
+                phrases: b.negative_phrases.clone(),
+                embeddings: b.negative.clone(),
+            },
+        ],
+    };
+    if let Err(e) = embedding_cache::save_cache(dir, engine.model().as_str(), content_hash, &cached)
+    {
+        tracing::warn!(error = %e, "failed to save embedding cache");
+    }
+}
+
+fn save_multi_cache(
+    cache_dir: Option<&Path>,
+    engine: &EmbeddingEngine,
+    content_hash: &str,
+    kind: &ReferenceSetKind,
+) {
+    let Some(dir) = cache_dir else { return };
+    let ReferenceSetKind::MultiCategory(m) = kind else {
+        return;
+    };
+    let groups = m
+        .categories
+        .iter()
+        .map(|(name, cat)| EmbeddingGroup {
+            name: name.clone(),
+            phrases: cat.phrases.clone(),
+            embeddings: cat.embeddings.clone(),
+        })
+        .collect();
+    let cached = CachedEmbeddings {
+        dimensions: engine.dimensions(),
+        groups,
+    };
+    if let Err(e) = embedding_cache::save_cache(dir, engine.model().as_str(), content_hash, &cached)
+    {
+        tracing::warn!(error = %e, "failed to save embedding cache");
+    }
+}
+
 /// Load all .toml reference sets from a directory.
 pub fn load_all_reference_sets(
     dir: &Path,
     engine: &mut EmbeddingEngine,
+    cache_dir: Option<&Path>,
 ) -> Result<Vec<ReferenceSet>> {
     let mut sets = Vec::new();
     if !dir.exists() {
@@ -196,7 +319,7 @@ pub fn load_all_reference_sets(
     for entry in entries {
         let path = entry.path();
         if path.extension().is_some_and(|ext| ext == "toml") {
-            match load_reference_set(&path, engine) {
+            match load_reference_set(&path, engine, cache_dir) {
                 Ok(set) => {
                     tracing::info!(
                         name = %set.metadata.name,

@@ -76,7 +76,7 @@ fn reload_sets(state: &AppState) {
     tracing::info!(dir = %state.sets_dir.display(), "reloading reference sets");
 
     let mut engine = state.engine.lock().unwrap();
-    match load_all_reference_sets(&state.sets_dir, &mut engine) {
+    match load_all_reference_sets(&state.sets_dir, &mut engine, Some(&state.cache_dir)) {
         Ok(new_sets) => {
             let count = new_sets.len();
             let mut sets = state.sets.write().unwrap();

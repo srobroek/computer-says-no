@@ -21,6 +21,7 @@ pub struct AppState {
     pub start_time: Instant,
     pub model: ModelChoice,
     pub sets_dir: PathBuf,
+    pub cache_dir: PathBuf,
 }
 
 #[derive(Serialize)]
@@ -110,7 +111,7 @@ pub async fn serve(config: &AppConfig) -> anyhow::Result<()> {
 
     let sets_dir = config.resolve_sets_dir();
     tracing::info!(dir = %sets_dir.display(), "loading reference sets");
-    let sets = load_all_reference_sets(&sets_dir, &mut engine)?;
+    let sets = load_all_reference_sets(&sets_dir, &mut engine, Some(&config.cache_dir))?;
     tracing::info!(count = sets.len(), "reference sets loaded");
 
     let state = Arc::new(AppState {
@@ -119,6 +120,7 @@ pub async fn serve(config: &AppConfig) -> anyhow::Result<()> {
         start_time: start,
         model: config.model,
         sets_dir: sets_dir.clone(),
+        cache_dir: config.cache_dir.clone(),
     });
 
     // Start file watcher for hot-reload

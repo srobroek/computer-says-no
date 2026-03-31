@@ -1,5 +1,6 @@
 mod classifier;
 mod config;
+mod embedding_cache;
 mod model;
 mod reference_set;
 mod server;
@@ -322,7 +323,7 @@ fn cmd_classify_standalone(
 ) -> Result<()> {
     let sets_dir = config.resolve_sets_dir();
     let mut engine = EmbeddingEngine::new(config.model, Some(config.model_cache_dir()))?;
-    let sets = load_all_reference_sets(&sets_dir, &mut engine)?;
+    let sets = load_all_reference_sets(&sets_dir, &mut engine, Some(&config.cache_dir))?;
 
     let reference_set = sets
         .iter()
@@ -380,8 +381,8 @@ fn cmd_sets_list(config: &AppConfig) -> Result<()> {
         return Ok(());
     }
 
-    let mut engine = EmbeddingEngine::new(ModelChoice::BGESmallENV15Q, None)?;
-    let sets = load_all_reference_sets(&dir, &mut engine)?;
+    let mut engine = EmbeddingEngine::new(config.model, Some(config.model_cache_dir()))?;
+    let sets = load_all_reference_sets(&dir, &mut engine, Some(&config.cache_dir))?;
 
     if sets.is_empty() {
         println!("No reference sets found in {}", dir.display());

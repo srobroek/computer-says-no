@@ -126,7 +126,7 @@ A developer uses the CLI to generate embedding vectors or compute similarity sco
 
 ### Session 2026-03-31
 
-- Q: What should the CLI do when the daemon is not running? → A: Fail with non-zero exit code and a warning suggesting `csn serve`. No standalone mode — hooks need fast responses, and cold-start model loading (1-2s) would block every prompt.
+- Q: What should the CLI do when the daemon is not running? → A: Fail with non-zero exit code and a warning suggesting `csn serve` or `--standalone`. The `--standalone` flag is available on classify, embed, and similarity for convenience (debugging, one-off use). Hooks should use the daemon for speed; standalone is opt-in for cases where running a daemon is impractical.
 - Q: SC-002 says "no restarts required" but file watching was out of scope — contradiction? → A: Pull file watching into this spec. The daemon watches the reference sets directory and auto-reloads on change. Remote set fetching remains out of scope (separate spec).
 
 ## Assumptions
