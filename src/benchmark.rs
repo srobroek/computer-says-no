@@ -501,6 +501,7 @@ pub fn print_table(run: &BenchmarkRun) {
             Cell::new("Edge Acc"),
             Cell::new("p50 (ms)"),
             Cell::new("p95 (ms)"),
+            Cell::new("p99 (ms)"),
             Cell::new("Cold (s)"),
         ]);
 
@@ -522,6 +523,7 @@ pub fn print_table(run: &BenchmarkRun) {
                     Cell::new(format!("{:.1}%", edge_acc * 100.0)),
                     Cell::new(format!("{:.1}", ds.latency_p50_ms)),
                     Cell::new(format!("{:.1}", ds.latency_p95_ms)),
+                    Cell::new(format!("{:.1}", ds.latency_p99_ms)),
                     Cell::new(format!("{:.1}", model_result.cold_startup_ms / 1000.0)),
                 ]);
             }
@@ -573,13 +575,18 @@ pub fn print_comparison(current: &BenchmarkRun, previous: &BenchmarkRun) {
                     ""
                 };
 
+                let lat_arrow = if lat_diff_pct <= 0.0 { "▼" } else { "▲" };
                 println!(
-                    "  {}: accuracy {:.1}% → {:.1}% ({}{:.1}%){}",
+                    "  {}: accuracy {:.1}% → {:.1}% ({}{:.1}%), p50 {:.1}ms → {:.1}ms ({}{:.0}%){}",
                     curr_model.model,
                     prev.accuracy * 100.0,
                     curr.accuracy * 100.0,
                     arrow,
                     acc_diff.abs(),
+                    prev.latency_p50_ms,
+                    curr.latency_p50_ms,
+                    lat_arrow,
+                    lat_diff_pct.abs(),
                     warn
                 );
             }
