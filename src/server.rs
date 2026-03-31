@@ -177,7 +177,10 @@ async fn handle_classify(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ClassifyRequest>,
 ) -> Result<Json<classifier::ClassifyResult>, AppError> {
-    let sets = state.sets.read().unwrap();
+    let sets = state
+        .sets
+        .read()
+        .map_err(|_| AppError::internal("lock poisoned".to_string()))?;
     let set = sets
         .iter()
         .find(|s| s.metadata.name == req.reference_set)
@@ -190,7 +193,10 @@ async fn handle_classify(
             ))
         })?;
 
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state
+        .engine
+        .lock()
+        .map_err(|_| AppError::internal("lock poisoned".to_string()))?;
     let result = classifier::classify_text(&mut engine, &req.text, set)
         .map_err(|e| AppError::internal(e.to_string()))?;
 
@@ -201,7 +207,10 @@ async fn handle_embed(
     State(state): State<Arc<AppState>>,
     Json(req): Json<EmbedRequest>,
 ) -> Result<Json<EmbedResponse>, AppError> {
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state
+        .engine
+        .lock()
+        .map_err(|_| AppError::internal("lock poisoned".to_string()))?;
     let embedding = engine
         .embed_one(&req.text)
         .map_err(|e| AppError::internal(e.to_string()))?;
@@ -218,7 +227,10 @@ async fn handle_similarity(
     State(state): State<Arc<AppState>>,
     Json(req): Json<SimilarityRequest>,
 ) -> Result<Json<SimilarityResponse>, AppError> {
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state
+        .engine
+        .lock()
+        .map_err(|_| AppError::internal("lock poisoned".to_string()))?;
     let embeddings = engine
         .embed(&[req.a.as_str(), req.b.as_str()])
         .map_err(|e| AppError::internal(e.to_string()))?;
@@ -227,7 +239,9 @@ async fn handle_similarity(
     Ok(Json(SimilarityResponse { similarity }))
 }
 
-async fn handle_health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
+async fn handle_health(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<HealthResponse>, AppError> {
     let uptime = state.start_time.elapsed();
     let secs = uptime.as_secs();
     let uptime_str = if secs >= 3600 {
@@ -238,17 +252,25 @@ async fn handle_health(State(state): State<Arc<AppState>>) -> Json<HealthRespons
         format!("{secs}s")
     };
 
-    let sets = state.sets.read().unwrap();
-    Json(HealthResponse {
+    let sets = state
+        .sets
+        .read()
+        .map_err(|_| AppError::internal("lock poisoned".to_string()))?;
+    Ok(Json(HealthResponse {
         status: "ok",
         model: state.model.to_string(),
         sets: sets.len(),
         uptime: uptime_str,
-    })
+    }))
 }
 
-async fn handle_sets(State(state): State<Arc<AppState>>) -> Json<Vec<SetInfo>> {
-    let sets = state.sets.read().unwrap();
+async fn handle_sets(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<SetInfo>>, AppError> {
+    let sets = state
+        .sets
+        .read()
+        .map_err(|_| AppError::internal("lock poisoned".to_string()))?;
     let infos = sets
         .iter()
         .map(|s| {
@@ -263,5 +285,5 @@ async fn handle_sets(State(state): State<Arc<AppState>>) -> Json<Vec<SetInfo>> {
             }
         })
         .collect();
-    Json(infos)
+    Ok(Json(infos))
 }

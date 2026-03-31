@@ -323,6 +323,104 @@ pub fn compute_tier_accuracy(results: &[(LabeledPrompt, bool)]) -> TierAccuracy 
     }
 }
 
+/// Measure a single dataset against a model: warm-up, classify, compute metrics.
+fn measure_dataset(
+    engine: &mut EmbeddingEngine,
+    ds: &LabeledDataset,
+    ref_set: &crate::reference_set::ReferenceSet,
+    model: ModelChoice,
+    warmup: usize,
+    iterations: usize,
+) -> Result<DatasetResult> {
+    // Warm-up
+    for _ in 0..warmup {
+        if let Some(prompt) = ds.prompts.first() {
+            let _ = classifier::classify_text(engine, &prompt.text, ref_set);
+        }
+    }
+
+    // Measured iterations: classify each prompt `iterations` times, collect latencies
+    let mut all_latencies = Vec::new();
+    let mut prompt_results: Vec<(LabeledPrompt, bool)> = Vec::new();
+
+    for prompt in &ds.prompts {
+        let mut correct = false;
+        for i in 0..iterations {
+            let start = Instant::now();
+            let result = classifier::classify_text(engine, &prompt.text, ref_set)
+                .with_context(|| format!("classifying '{}' with {}", prompt.text, model))?;
+            all_latencies.push(start.elapsed());
+
+            if i == 0 {
+                correct = is_correct(&result, prompt, &ds.mode);
+            }
+        }
+        prompt_results.push((prompt.clone(), correct));
+    }
+
+    // Compute metrics
+    all_latencies.sort();
+    let total = prompt_results.len();
+    let correct_count = prompt_results.iter().filter(|(_, c)| *c).count();
+    let accuracy = if total > 0 {
+        correct_count as f64 / total as f64
+    } else {
+        0.0
+    };
+
+    let (precision, recall) = compute_precision_recall(&prompt_results, &ds.mode, accuracy);
+    let tier_acc = compute_tier_accuracy(&prompt_results);
+
+    Ok(DatasetResult {
+        dataset: ds.name.clone(),
+        accuracy,
+        accuracy_by_tier: tier_acc,
+        precision,
+        recall,
+        latency_p50_ms: percentile(&all_latencies, 50.0).as_secs_f64() * 1000.0,
+        latency_p95_ms: percentile(&all_latencies, 95.0).as_secs_f64() * 1000.0,
+        latency_p99_ms: percentile(&all_latencies, 99.0).as_secs_f64() * 1000.0,
+        latency_cv: coefficient_of_variation(&all_latencies),
+        total_prompts: total,
+        correct: correct_count,
+    })
+}
+
+/// Compute precision and recall from prompt results.
+fn compute_precision_recall(
+    prompt_results: &[(LabeledPrompt, bool)],
+    mode: &str,
+    accuracy: f64,
+) -> (f64, f64) {
+    if mode == "binary" {
+        let tp = prompt_results
+            .iter()
+            .filter(|(p, c)| p.polarity == Polarity::Positive && *c)
+            .count();
+        let fp = prompt_results
+            .iter()
+            .filter(|(p, c)| p.polarity == Polarity::Negative && !*c)
+            .count();
+        let fn_ = prompt_results
+            .iter()
+            .filter(|(p, c)| p.polarity == Polarity::Positive && !*c)
+            .count();
+        let prec = if tp + fp > 0 {
+            tp as f64 / (tp + fp) as f64
+        } else {
+            0.0
+        };
+        let rec = if tp + fn_ > 0 {
+            tp as f64 / (tp + fn_) as f64
+        } else {
+            0.0
+        };
+        (prec, rec)
+    } else {
+        (accuracy, accuracy) // For multi-category, precision ≈ accuracy
+    }
+}
+
 /// Run the full benchmark across models and datasets.
 pub fn run_benchmark(
     models: &[ModelChoice],
@@ -362,7 +460,6 @@ pub fn run_benchmark(
         for ds in datasets {
             pb.set_message(format!("{} × {}", model.as_str(), ds.name));
 
-            // Find matching reference set
             let ref_set = sets.iter().find(|s| s.metadata.name == ds.reference_set);
             let Some(ref_set) = ref_set else {
                 tracing::warn!(
@@ -375,88 +472,8 @@ pub fn run_benchmark(
                 continue;
             };
 
-            // Warm-up
-            for _ in 0..warmup {
-                if let Some(prompt) = ds.prompts.first() {
-                    let _ = classifier::classify_text(&mut engine, &prompt.text, ref_set);
-                }
-            }
-
-            // Measured iterations: classify each prompt `iterations` times, collect latencies
-            let mut all_latencies = Vec::new();
-            let mut prompt_results: Vec<(LabeledPrompt, bool)> = Vec::new();
-
-            for prompt in &ds.prompts {
-                let mut correct = false;
-                for i in 0..iterations {
-                    let start = Instant::now();
-                    let result = classifier::classify_text(&mut engine, &prompt.text, ref_set)
-                        .with_context(|| format!("classifying '{}' with {}", prompt.text, model))?;
-                    all_latencies.push(start.elapsed());
-
-                    // Use first iteration for accuracy
-                    if i == 0 {
-                        correct = is_correct(&result, prompt, &ds.mode);
-                    }
-                }
-                prompt_results.push((prompt.clone(), correct));
-            }
-
-            // Compute metrics
-            all_latencies.sort();
-            let total = prompt_results.len();
-            let correct_count = prompt_results.iter().filter(|(_, c)| *c).count();
-            let accuracy = if total > 0 {
-                correct_count as f64 / total as f64
-            } else {
-                0.0
-            };
-
-            // Precision and recall for binary datasets
-            let (precision, recall) = if ds.mode == "binary" {
-                let tp = prompt_results
-                    .iter()
-                    .filter(|(p, c)| p.polarity == Polarity::Positive && *c)
-                    .count();
-                let fp = prompt_results
-                    .iter()
-                    .filter(|(p, c)| p.polarity == Polarity::Negative && !*c)
-                    .count();
-                let fn_ = prompt_results
-                    .iter()
-                    .filter(|(p, c)| p.polarity == Polarity::Positive && !*c)
-                    .count();
-                let prec = if tp + fp > 0 {
-                    tp as f64 / (tp + fp) as f64
-                } else {
-                    0.0
-                };
-                let rec = if tp + fn_ > 0 {
-                    tp as f64 / (tp + fn_) as f64
-                } else {
-                    0.0
-                };
-                (prec, rec)
-            } else {
-                (accuracy, accuracy) // For multi-category, precision ≈ accuracy
-            };
-
-            let tier_acc = compute_tier_accuracy(&prompt_results);
-
-            dataset_results.push(DatasetResult {
-                dataset: ds.name.clone(),
-                accuracy,
-                accuracy_by_tier: tier_acc,
-                precision,
-                recall,
-                latency_p50_ms: percentile(&all_latencies, 50.0).as_secs_f64() * 1000.0,
-                latency_p95_ms: percentile(&all_latencies, 95.0).as_secs_f64() * 1000.0,
-                latency_p99_ms: percentile(&all_latencies, 99.0).as_secs_f64() * 1000.0,
-                latency_cv: coefficient_of_variation(&all_latencies),
-                total_prompts: total,
-                correct: correct_count,
-            });
-
+            let result = measure_dataset(&mut engine, ds, ref_set, model, warmup, iterations)?;
+            dataset_results.push(result);
             pb.inc(1);
         }
 
