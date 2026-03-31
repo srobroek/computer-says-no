@@ -64,8 +64,8 @@
 ### Implementation for User Story 2
 
 - [X] T012 [US2] Implement generate_dataset_scaffold in src/dataset.rs: read reference set metadata (name, mode, categories/phrases), output JSON with tier/polarity structure and example prompts as seeds
-- [ ] T013 [US2] Generate corrections dataset (500 prompts) in datasets/corrections.json: use LLM subagent to create 83 prompts per tier (clear_pos, moderate_pos, edge_pos, clear_neg, moderate_neg, edge_neg) seeded from corrections.toml phrases
-- [ ] T014 [P] [US2] Generate commit-types dataset (500 prompts) in datasets/commit-types.json: use LLM subagent to create 83 prompts per tier seeded from commit-types.toml categories
+- [X] T013 [US2] Generate corrections dataset (500 prompts) in datasets/corrections.json: use LLM subagent to create 83 prompts per tier (clear_pos, moderate_pos, edge_pos, clear_neg, moderate_neg, edge_neg) seeded from corrections.toml phrases
+- [X] T014 [P] [US2] Generate commit-types dataset (500 prompts) in datasets/commit-types.json: use LLM subagent to create 83 prompts per tier seeded from commit-types.toml categories
 - [X] T015 [US2] Wire generate-datasets into src/main.rs: read reference sets from sets_dir, call generate_dataset_scaffold, write to output_dir
 
 **Checkpoint**: datasets/ contains corrections.json and commit-types.json with 500 labeled prompts each. US2 independently testable.
