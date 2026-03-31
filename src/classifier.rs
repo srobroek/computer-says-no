@@ -1,10 +1,10 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::model::{Embedding, EmbeddingEngine, cosine_similarity};
 use crate::reference_set::{ReferenceSet, ReferenceSetKind};
 
 /// Result of a binary classification.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinaryResult {
     #[serde(rename = "match")]
     pub is_match: bool,
@@ -13,14 +13,14 @@ pub struct BinaryResult {
     pub scores: BinaryScores,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinaryScores {
     pub positive: f32,
     pub negative: f32,
 }
 
 /// Result of a multi-category classification.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MultiCategoryResult {
     #[serde(rename = "match")]
     pub is_match: bool,
@@ -30,7 +30,7 @@ pub struct MultiCategoryResult {
     pub all_scores: Vec<CategoryScore>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CategoryScore {
     pub category: String,
     pub score: f32,
@@ -38,14 +38,13 @@ pub struct CategoryScore {
 }
 
 /// Unified classification result.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ClassifyResult {
     Binary(BinaryResult),
     MultiCategory(MultiCategoryResult),
 }
 
-#[allow(dead_code)]
 impl ClassifyResult {
     pub fn is_match(&self) -> bool {
         match self {

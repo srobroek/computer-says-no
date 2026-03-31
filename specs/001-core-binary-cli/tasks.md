@@ -29,10 +29,10 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Refactor src/server.rs: replace Vec<ReferenceSet> with RwLock<Vec<ReferenceSet>> in AppState, add proper JSON error responses per contracts/rest-api.md
-- [ ] T005 Add graceful shutdown handler to server (SIGTERM/SIGINT via tokio::signal) in src/server.rs
-- [ ] T006 Refactor src/main.rs: integrate config.rs, wire config into serve command, resolve sets_dir from config precedence
-- [ ] T007 [P] Refactor src/reference_set.rs: add validation (reject empty phrase sets), verify blake3 embedding cache persistence (FR-014), detect dimension mismatches on model change, improve error messages for invalid TOML
+- [X] T004 Refactor src/server.rs: replace Vec<ReferenceSet> with RwLock<Vec<ReferenceSet>> in AppState, add proper JSON error responses per contracts/rest-api.md
+- [X] T005 Add graceful shutdown handler to server (SIGTERM/SIGINT via tokio::signal) in src/server.rs
+- [X] T006 Refactor src/main.rs: integrate config.rs, wire config into serve command, resolve sets_dir from config precedence
+- [X] T007 [P] Refactor src/reference_set.rs: add validation (reject empty phrase sets), verify blake3 embedding cache persistence (FR-014), detect dimension mismatches on model change, improve error messages for invalid TOML
 
 **Checkpoint**: Foundation ready — daemon starts with config, shared state supports concurrent reads + atomic swap
 

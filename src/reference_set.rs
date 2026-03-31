@@ -105,8 +105,17 @@ pub fn load_reference_set(path: &Path, engine: &mut EmbeddingEngine) -> Result<R
     let kind = match file.metadata.mode {
         Mode::Binary => {
             let phrases = file.phrases.with_context(|| {
-                format!("{}: binary mode requires [phrases] section", path.display())
+                format!(
+                    "{}: binary mode requires [phrases] section with positive phrases",
+                    path.display()
+                )
             })?;
+
+            anyhow::ensure!(
+                !phrases.positive.is_empty(),
+                "{}: binary reference set must have at least one positive phrase",
+                path.display()
+            );
 
             let positive = embed_phrases(engine, &phrases.positive)?;
             let negative_phrases = phrases.negative.unwrap_or_default();
@@ -126,6 +135,21 @@ pub fn load_reference_set(path: &Path, engine: &mut EmbeddingEngine) -> Result<R
                     path.display()
                 )
             })?;
+
+            anyhow::ensure!(
+                !categories.is_empty(),
+                "{}: multi-category reference set must have at least one category",
+                path.display()
+            );
+
+            for (name, cat) in &categories {
+                anyhow::ensure!(
+                    !cat.phrases.is_empty(),
+                    "{}: category '{}' must have at least one phrase",
+                    path.display(),
+                    name
+                );
+            }
 
             let mut cat_embeddings = HashMap::new();
             for (name, cat) in &categories {

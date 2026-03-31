@@ -8,6 +8,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+use crate::config::{AppConfig, CliOverrides};
 use crate::model::{EmbeddingEngine, ModelChoice, cosine_similarity};
 use crate::reference_set::load_all_reference_sets;
 
@@ -35,12 +36,16 @@ enum Command {
         json: bool,
 
         /// Model to use
-        #[arg(short, long, default_value_t = ModelChoice::default())]
-        model: ModelChoice,
+        #[arg(short, long)]
+        model: Option<ModelChoice>,
 
         /// Path to reference sets directory
         #[arg(long)]
         sets_dir: Option<PathBuf>,
+
+        /// Classify in-process without connecting to daemon
+        #[arg(long)]
+        standalone: bool,
     },
 
     /// Generate embedding vector for text
@@ -49,8 +54,12 @@ enum Command {
         text: String,
 
         /// Model to use
-        #[arg(short, long, default_value_t = ModelChoice::default())]
-        model: ModelChoice,
+        #[arg(short, long)]
+        model: Option<ModelChoice>,
+
+        /// Embed in-process without connecting to daemon
+        #[arg(long)]
+        standalone: bool,
     },
 
     /// Compute cosine similarity between two texts
@@ -62,8 +71,12 @@ enum Command {
         b: String,
 
         /// Model to use
-        #[arg(short, long, default_value_t = ModelChoice::default())]
-        model: ModelChoice,
+        #[arg(short, long)]
+        model: Option<ModelChoice>,
+
+        /// Compute in-process without connecting to daemon
+        #[arg(long)]
+        standalone: bool,
     },
 
     /// List available embedding models
@@ -72,16 +85,20 @@ enum Command {
     /// Start the daemon server
     Serve {
         /// Port to listen on
-        #[arg(short, long, default_value_t = 9847)]
-        port: u16,
+        #[arg(short, long)]
+        port: Option<u16>,
 
         /// Model to use
-        #[arg(short, long, default_value_t = ModelChoice::default())]
-        model: ModelChoice,
+        #[arg(short, long)]
+        model: Option<ModelChoice>,
 
         /// Path to reference sets directory
         #[arg(long)]
         sets_dir: Option<PathBuf>,
+
+        /// Log level (trace, debug, info, warn, error)
+        #[arg(long)]
+        log_level: Option<String>,
     },
 
     /// Manage reference sets
@@ -101,41 +118,7 @@ enum SetsAction {
     },
 }
 
-fn default_sets_dir() -> PathBuf {
-    directories::ProjectDirs::from("", "", "computer-says-no")
-        .map(|d| d.config_dir().join("reference-sets"))
-        .unwrap_or_else(|| PathBuf::from("reference-sets"))
-}
-
-fn resolve_sets_dir(override_dir: Option<PathBuf>) -> PathBuf {
-    override_dir.unwrap_or_else(default_sets_dir)
-}
-
-/// Find the bundled reference-sets/ directory (next to the binary or in the project).
-fn find_bundled_sets_dir() -> Option<PathBuf> {
-    // Check next to binary
-    if let Ok(exe) = std::env::current_exe() {
-        let dir = exe.parent()?.join("reference-sets");
-        if dir.exists() {
-            return Some(dir);
-        }
-    }
-    // Check current working directory
-    let cwd = PathBuf::from("reference-sets");
-    if cwd.exists() {
-        return Some(cwd);
-    }
-    None
-}
-
 fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
-        )
-        .init();
-
     let cli = Cli::parse();
 
     match cli.command {
@@ -145,39 +128,200 @@ fn main() -> Result<()> {
             json,
             model,
             sets_dir,
-        } => cmd_classify(&text, &set, json, model, sets_dir),
+            standalone,
+        } => {
+            let config = AppConfig::load(CliOverrides {
+                model,
+                sets_dir,
+                ..Default::default()
+            })?;
+            init_tracing(&config.log_level);
 
-        Command::Embed { text, model } => cmd_embed(&text, model),
+            if standalone {
+                cmd_classify_standalone(&config, &text, &set, json)
+            } else {
+                cmd_classify_remote(&config, &text, &set, json)
+            }
+        }
 
-        Command::Similarity { a, b, model } => cmd_similarity(&a, &b, model),
+        Command::Embed {
+            text,
+            model,
+            standalone,
+        } => {
+            let config = AppConfig::load(CliOverrides {
+                model,
+                ..Default::default()
+            })?;
+            init_tracing(&config.log_level);
+
+            if standalone {
+                cmd_embed_standalone(&config, &text)
+            } else {
+                cmd_embed_remote(&config, &text)
+            }
+        }
+
+        Command::Similarity {
+            a,
+            b,
+            model,
+            standalone,
+        } => {
+            let config = AppConfig::load(CliOverrides {
+                model,
+                ..Default::default()
+            })?;
+            init_tracing(&config.log_level);
+
+            if standalone {
+                cmd_similarity_standalone(&config, &a, &b)
+            } else {
+                cmd_similarity_remote(&config, &a, &b)
+            }
+        }
 
         Command::Serve {
             port,
             model,
             sets_dir,
+            log_level,
         } => {
+            let config = AppConfig::load(CliOverrides {
+                port,
+                model,
+                sets_dir,
+                log_level,
+                ..Default::default()
+            })?;
+            init_tracing(&config.log_level);
+
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(server::serve(model, resolve_sets_dir(sets_dir), port))
+            rt.block_on(server::serve(&config))
         }
 
         Command::Models => cmd_models(),
 
         Command::Sets { action } => match action {
-            SetsAction::List { sets_dir } => cmd_sets_list(sets_dir),
+            SetsAction::List { sets_dir } => {
+                let config = AppConfig::load(CliOverrides {
+                    sets_dir,
+                    ..Default::default()
+                })?;
+                init_tracing(&config.log_level);
+                cmd_sets_list(&config)
+            }
         },
     }
 }
 
-fn cmd_classify(
+fn init_tracing(log_level: &str) {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level)),
+        )
+        .init();
+}
+
+// --- Remote (daemon) commands ---
+
+fn daemon_url(config: &AppConfig, path: &str) -> String {
+    format!("http://127.0.0.1:{}{}", config.port, path)
+}
+
+fn check_daemon(config: &AppConfig) -> Result<reqwest::blocking::Client> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()?;
+
+    client
+        .get(&daemon_url(config, "/health"))
+        .send()
+        .with_context(|| {
+            format!(
+                "daemon not reachable at 127.0.0.1:{}. Start it with `csn serve` or use --standalone",
+                config.port
+            )
+        })?;
+
+    Ok(client)
+}
+
+fn cmd_classify_remote(config: &AppConfig, text: &str, set_name: &str, json: bool) -> Result<()> {
+    let client = check_daemon(config)?;
+
+    let resp = client
+        .post(&daemon_url(config, "/classify"))
+        .json(&serde_json::json!({"text": text, "reference_set": set_name}))
+        .send()?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body: serde_json::Value = resp.json().unwrap_or_default();
+        let msg = body["error"].as_str().unwrap_or("unknown error");
+        anyhow::bail!("classify failed ({}): {}", status, msg);
+    }
+
+    let result: classifier::ClassifyResult = resp.json()?;
+    print_classify_result(&result, json);
+    Ok(())
+}
+
+fn cmd_embed_remote(config: &AppConfig, text: &str) -> Result<()> {
+    let client = check_daemon(config)?;
+
+    let resp = client
+        .post(&daemon_url(config, "/embed"))
+        .json(&serde_json::json!({"text": text}))
+        .send()?;
+
+    if !resp.status().is_success() {
+        let body: serde_json::Value = resp.json().unwrap_or_default();
+        anyhow::bail!(
+            "embed failed: {}",
+            body["error"].as_str().unwrap_or("unknown error")
+        );
+    }
+
+    let body: serde_json::Value = resp.json()?;
+    println!("{}", serde_json::to_string_pretty(&body)?);
+    Ok(())
+}
+
+fn cmd_similarity_remote(config: &AppConfig, a: &str, b: &str) -> Result<()> {
+    let client = check_daemon(config)?;
+
+    let resp = client
+        .post(&daemon_url(config, "/similarity"))
+        .json(&serde_json::json!({"a": a, "b": b}))
+        .send()?;
+
+    if !resp.status().is_success() {
+        let body: serde_json::Value = resp.json().unwrap_or_default();
+        anyhow::bail!(
+            "similarity failed: {}",
+            body["error"].as_str().unwrap_or("unknown error")
+        );
+    }
+
+    let body: serde_json::Value = resp.json()?;
+    let sim = body["similarity"].as_f64().unwrap_or(0.0);
+    println!("{:.4}", sim);
+    Ok(())
+}
+
+// --- Standalone (in-process) commands ---
+
+fn cmd_classify_standalone(
+    config: &AppConfig,
     text: &str,
     set_name: &str,
     json: bool,
-    model: ModelChoice,
-    sets_dir: Option<PathBuf>,
 ) -> Result<()> {
-    let dir = resolve_sets_dir(sets_dir);
-    let mut engine = EmbeddingEngine::new(model, None)?;
-    let sets = load_all_reference_sets(&dir, &mut engine)?;
+    let sets_dir = config.resolve_sets_dir();
+    let mut engine = EmbeddingEngine::new(config.model, Some(config.model_cache_dir()))?;
+    let sets = load_all_reference_sets(&sets_dir, &mut engine)?;
 
     let reference_set = sets
         .iter()
@@ -192,52 +336,31 @@ fn cmd_classify(
         })?;
 
     let result = classifier::classify_text(&mut engine, text, reference_set)?;
-
-    if json {
-        println!("{}", serde_json::to_string_pretty(&result)?);
-    } else {
-        match &result {
-            classifier::ClassifyResult::Binary(r) => {
-                let status = if r.is_match { "MATCH" } else { "no match" };
-                println!("{status} (confidence: {:.2})", r.confidence);
-                println!("  top phrase: {}", r.top_phrase);
-                println!(
-                    "  scores: positive={:.2}, negative={:.2}",
-                    r.scores.positive, r.scores.negative
-                );
-            }
-            classifier::ClassifyResult::MultiCategory(r) => {
-                let status = if r.is_match { "MATCH" } else { "no match" };
-                println!("{status}: {} (confidence: {:.2})", r.category, r.confidence);
-                for cs in &r.all_scores {
-                    println!("  {}: {:.2} ({})", cs.category, cs.score, cs.top_phrase);
-                }
-            }
-        }
-    }
-
+    print_classify_result(&result, json);
     Ok(())
 }
 
-fn cmd_embed(text: &str, model: ModelChoice) -> Result<()> {
-    let mut engine = EmbeddingEngine::new(model, None)?;
+fn cmd_embed_standalone(config: &AppConfig, text: &str) -> Result<()> {
+    let mut engine = EmbeddingEngine::new(config.model, Some(config.model_cache_dir()))?;
     let embedding = engine.embed_one(text)?;
     let output = serde_json::json!({
         "embedding": embedding,
         "dimensions": embedding.len(),
-        "model": model.as_str(),
+        "model": config.model.as_str(),
     });
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
 }
 
-fn cmd_similarity(a: &str, b: &str, model: ModelChoice) -> Result<()> {
-    let mut engine = EmbeddingEngine::new(model, None)?;
+fn cmd_similarity_standalone(config: &AppConfig, a: &str, b: &str) -> Result<()> {
+    let mut engine = EmbeddingEngine::new(config.model, Some(config.model_cache_dir()))?;
     let embeddings = engine.embed(&[a, b])?;
     let sim = cosine_similarity(&embeddings[0], &embeddings[1]);
     println!("{:.4}", sim);
     Ok(())
 }
+
+// --- Local commands (no daemon needed) ---
 
 fn cmd_models() -> Result<()> {
     println!("{:<30} {:>6}", "MODEL", "DIM");
@@ -248,18 +371,14 @@ fn cmd_models() -> Result<()> {
     Ok(())
 }
 
-fn cmd_sets_list(sets_dir: Option<PathBuf>) -> Result<()> {
-    let dir = resolve_sets_dir(sets_dir);
+fn cmd_sets_list(config: &AppConfig) -> Result<()> {
+    let dir = config.resolve_sets_dir();
 
     if !dir.exists() {
         println!("No reference sets directory at {}", dir.display());
-        if let Some(bundled) = find_bundled_sets_dir() {
-            println!("Bundled sets available at: {}", bundled.display());
-        }
         return Ok(());
     }
 
-    // We need an engine just to parse — use the smallest model
     let mut engine = EmbeddingEngine::new(ModelChoice::BGESmallENV15Q, None)?;
     let sets = load_all_reference_sets(&dir, &mut engine)?;
 
@@ -284,4 +403,34 @@ fn cmd_sets_list(sets_dir: Option<PathBuf>) -> Result<()> {
     }
 
     Ok(())
+}
+
+// --- Output formatting ---
+
+fn print_classify_result(result: &classifier::ClassifyResult, json: bool) {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(result).expect("serialization failed")
+        );
+    } else {
+        match result {
+            classifier::ClassifyResult::Binary(r) => {
+                let status = if r.is_match { "MATCH" } else { "no match" };
+                println!("{status} (confidence: {:.2})", r.confidence);
+                println!("  top phrase: {}", r.top_phrase);
+                println!(
+                    "  scores: positive={:.2}, negative={:.2}",
+                    r.scores.positive, r.scores.negative
+                );
+            }
+            classifier::ClassifyResult::MultiCategory(r) => {
+                let status = if r.is_match { "MATCH" } else { "no match" };
+                println!("{status}: {} (confidence: {:.2})", r.category, r.confidence);
+                for cs in &r.all_scores {
+                    println!("  {}: {:.2} ({})", cs.category, cs.score, cs.top_phrase);
+                }
+            }
+        }
+    }
 }
