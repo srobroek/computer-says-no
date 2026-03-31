@@ -13,11 +13,11 @@ A developer wants to choose the best embedding model for their use case. They ru
 
 **Why this priority**: Model selection is the primary decision this feature supports. Without it, users guess which model to use.
 
-**Independent Test**: Run `csn benchmark` and verify it produces a comparison table with accuracy and latency for each model × dataset combination.
+**Independent Test**: Run `csn benchmark run` and verify it produces a comparison table with accuracy and latency for each model × dataset combination.
 
 **Acceptance Scenarios**:
 
-1. **Given** labeled datasets exist in the datasets directory, **When** the user runs `csn benchmark`, **Then** the system tests each model against each dataset and outputs a comparison matrix with accuracy and latency metrics.
+1. **Given** labeled datasets exist in the datasets directory, **When** the user runs `csn benchmark run`, **Then** the system tests each model against each dataset and outputs a comparison matrix with accuracy and latency metrics.
 2. **Given** the benchmark is running, **When** a model is first loaded, **Then** the system performs warm-up iterations before measuring, ensuring cold startup is excluded from latency metrics.
 3. **Given** the benchmark completes, **When** the user views the results, **Then** each cell in the matrix shows accuracy percentage, warm latency at p50/p95/p99, and cold startup time.
 4. **Given** the user wants machine-readable output, **When** they pass `--json`, **Then** the results are output as structured JSON.
@@ -48,7 +48,7 @@ A developer wants to benchmark a specific model or test against a specific datas
 
 **Why this priority**: Useful for quick iteration when tuning a specific reference set or evaluating a single model candidate.
 
-**Independent Test**: Run `csn benchmark --model bge-small-en-v1.5-Q --dataset corrections` and verify it runs only that combination.
+**Independent Test**: Run `csn benchmark run --model bge-small-en-v1.5-Q --dataset corrections` and verify it runs only that combination.
 
 **Acceptance Scenarios**:
 
@@ -64,7 +64,7 @@ A developer wants to track benchmark results over time to detect regressions. Th
 
 **Why this priority**: Regression detection is valuable but not needed for the initial benchmark workflow.
 
-**Independent Test**: Run `csn benchmark --output results.json`, modify a reference set, re-run, and compare.
+**Independent Test**: Run `csn benchmark run --output results.json`, modify a reference set, re-run, and compare.
 
 **Acceptance Scenarios**:
 
@@ -85,7 +85,7 @@ A developer wants to track benchmark results over time to detect regressions. Th
 
 ### Functional Requirements
 
-- **FR-001**: System MUST provide a `csn benchmark` subcommand that runs classification accuracy and latency tests across models and datasets.
+- **FR-001**: System MUST provide a `csn benchmark run` subcommand that runs classification accuracy and latency tests across models and datasets.
 - **FR-002**: System MUST test all 12 supported models unless filtered by `--model`.
 - **FR-003**: System MUST test all available labeled datasets unless filtered by `--dataset`.
 - **FR-004**: System MUST warm each model before measurement by running a configurable number of warm-up iterations (default: 5) to exclude cold startup from latency.
