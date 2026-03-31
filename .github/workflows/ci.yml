@@ -14,9 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
-          components: clippy, rustfmt
+          toolchain: "" # reads from rust-toolchain.toml
       - uses: Swatinem/rust-cache@v2
       - name: Check formatting
         run: cargo fmt --check
@@ -32,7 +32,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "" # reads from rust-toolchain.toml
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
         run: cargo test
@@ -52,8 +54,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "" # reads from rust-toolchain.toml
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - name: Build release
