@@ -110,6 +110,12 @@ enum Command {
         #[command(subcommand)]
         action: SetsAction,
     },
+
+    /// Run model benchmark
+    Benchmark {
+        #[command(subcommand)]
+        action: BenchmarkAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -119,6 +125,55 @@ enum SetsAction {
         /// Path to reference sets directory
         #[arg(long)]
         sets_dir: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum BenchmarkAction {
+    /// Run benchmark across models and datasets
+    Run {
+        /// Test only this model
+        #[arg(long)]
+        model: Option<ModelChoice>,
+
+        /// Test only this dataset
+        #[arg(long)]
+        dataset: Option<String>,
+
+        /// Measured iterations per prompt (default: 20)
+        #[arg(long, default_value_t = 20)]
+        iterations: usize,
+
+        /// Warm-up iterations before measuring (default: 5)
+        #[arg(long, default_value_t = 5)]
+        warmup: usize,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Save results to file
+        #[arg(long)]
+        output: Option<PathBuf>,
+
+        /// Compare against previous run
+        #[arg(long)]
+        compare: Option<PathBuf>,
+
+        /// Path to datasets directory
+        #[arg(long)]
+        datasets_dir: Option<PathBuf>,
+    },
+
+    /// Generate labeled test datasets from reference sets
+    GenerateDatasets {
+        /// Path to reference sets directory
+        #[arg(long)]
+        sets_dir: Option<PathBuf>,
+
+        /// Path to output datasets directory
+        #[arg(long)]
+        output_dir: Option<PathBuf>,
     },
 }
 
@@ -214,6 +269,38 @@ fn main() -> Result<()> {
                 })?;
                 init_tracing(&config.log_level);
                 cmd_sets_list(&config)
+            }
+        },
+
+        Command::Benchmark { action } => match action {
+            BenchmarkAction::Run {
+                model,
+                dataset,
+                iterations,
+                warmup,
+                json,
+                output,
+                compare,
+                datasets_dir,
+            } => {
+                let config = AppConfig::load(CliOverrides {
+                    model,
+                    datasets_dir,
+                    ..Default::default()
+                })?;
+                init_tracing(&config.log_level);
+                cmd_benchmark_run(&config, dataset, iterations, warmup, json, output, compare)
+            }
+            BenchmarkAction::GenerateDatasets {
+                sets_dir,
+                output_dir,
+            } => {
+                let config = AppConfig::load(CliOverrides {
+                    sets_dir,
+                    ..Default::default()
+                })?;
+                init_tracing(&config.log_level);
+                cmd_generate_datasets(&config, output_dir)
             }
         },
     }
@@ -406,6 +493,88 @@ fn cmd_sets_list(config: &AppConfig) -> Result<()> {
         );
     }
 
+    Ok(())
+}
+
+// --- Benchmark commands ---
+
+fn cmd_benchmark_run(
+    config: &AppConfig,
+    _dataset_filter: Option<String>,
+    _iterations: usize,
+    _warmup: usize,
+    _json: bool,
+    _output: Option<PathBuf>,
+    _compare: Option<PathBuf>,
+) -> Result<()> {
+    let datasets_dir = &config.datasets_dir;
+    let datasets = dataset::load_all_datasets(datasets_dir)?;
+
+    if datasets.is_empty() {
+        anyhow::bail!(
+            "no datasets found in {}. Run `csn benchmark generate-datasets` first.",
+            datasets_dir.display()
+        );
+    }
+
+    println!(
+        "Found {} dataset(s) in {}",
+        datasets.len(),
+        datasets_dir.display()
+    );
+
+    // TODO: T008-T011 will implement the full orchestration loop
+    println!("Benchmark orchestration not yet implemented (T008-T011)");
+    Ok(())
+}
+
+fn cmd_generate_datasets(config: &AppConfig, output_dir: Option<PathBuf>) -> Result<()> {
+    let sets_dir = config.resolve_sets_dir();
+    let output = output_dir.unwrap_or_else(|| config.datasets_dir.clone());
+
+    std::fs::create_dir_all(&output)
+        .with_context(|| format!("creating datasets dir {}", output.display()))?;
+
+    // Load reference sets (need a model to parse them)
+    let mut engine = model::EmbeddingEngine::new(config.model, Some(config.model_cache_dir()))?;
+    let sets =
+        reference_set::load_all_reference_sets(&sets_dir, &mut engine, Some(&config.cache_dir))?;
+
+    if sets.is_empty() {
+        anyhow::bail!("no reference sets found in {}", sets_dir.display());
+    }
+
+    for set in &sets {
+        let mode = match &set.kind {
+            reference_set::ReferenceSetKind::Binary(_) => "binary",
+            reference_set::ReferenceSetKind::MultiCategory(_) => "multi-category",
+        };
+
+        // Collect seed phrases
+        let seeds: Vec<String> = match &set.kind {
+            reference_set::ReferenceSetKind::Binary(b) => b.positive_phrases.clone(),
+            reference_set::ReferenceSetKind::MultiCategory(m) => m
+                .categories
+                .values()
+                .flat_map(|c| c.phrases.clone())
+                .collect(),
+        };
+
+        let scaffold = dataset::generate_scaffold(&set.metadata.name, mode, &seeds);
+        let path = output.join(format!("{}.json", set.metadata.name));
+        let json = serde_json::to_string_pretty(&scaffold)?;
+        std::fs::write(&path, json).with_context(|| format!("writing {}", path.display()))?;
+        println!(
+            "Generated scaffold: {} ({} seed prompts)",
+            path.display(),
+            scaffold.prompts.len()
+        );
+    }
+
+    println!(
+        "\nScaffolds written to {}. Fill with LLM-generated prompts (500 per dataset).",
+        output.display()
+    );
     Ok(())
 }
 

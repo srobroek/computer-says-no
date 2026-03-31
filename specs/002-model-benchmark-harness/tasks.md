@@ -15,9 +15,9 @@
 
 **Purpose**: Add benchmark dependencies and dataset directory structure
 
-- [ ] T001 Add comfy-table and indicatif dependencies to Cargo.toml, add datasets_dir to AppConfig in src/config.rs
-- [ ] T002 [P] Create src/dataset.rs: define LabeledPrompt, LabeledDataset, Tier, Polarity structs with serde Serialize/Deserialize, add load_dataset and load_all_datasets functions
-- [ ] T003 [P] Create src/benchmark.rs: define BenchmarkConfig, ModelResult, DatasetResult, BenchmarkRun structs with serde Serialize/Deserialize
+- [X] T001 Add comfy-table and indicatif dependencies to Cargo.toml, add datasets_dir to AppConfig in src/config.rs
+- [X] T002 [P] Create src/dataset.rs: define LabeledPrompt, LabeledDataset, Tier, Polarity structs with serde Serialize/Deserialize, add load_dataset and load_all_datasets functions
+- [X] T003 [P] Create src/benchmark.rs: define BenchmarkConfig, ModelResult, DatasetResult, BenchmarkRun structs with serde Serialize/Deserialize
 
 **Checkpoint**: Types compile, dataset loading works from JSON files
 
@@ -29,10 +29,10 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Implement benchmark measurement loop in src/benchmark.rs: load model → measure cold startup → warm-up iterations → measured iterations → compute percentiles (inline sort+index for p50/p95/p99) and accuracy per dataset
-- [ ] T005 Implement accuracy calculation in src/benchmark.rs: compare ClassifyResult against LabeledPrompt expected_label, compute overall accuracy, per-tier accuracy breakdown, precision, recall
-- [ ] T006 [P] Implement dataset generation scaffold in src/dataset.rs: read reference sets, output JSON template with tier/polarity structure for LLM filling via generate_dataset_scaffold function
-- [ ] T007 Add benchmark and generate-datasets subcommands to CLI in src/main.rs with clap: benchmark flags (--model, --dataset, --iterations, --warmup, --json, --output, --compare), generate-datasets flags (--sets-dir, --output-dir)
+- [X] T004 Implement benchmark measurement loop in src/benchmark.rs: load model → measure cold startup → warm-up iterations → measured iterations → compute percentiles (inline sort+index for p50/p95/p99) and accuracy per dataset
+- [X] T005 Implement accuracy calculation in src/benchmark.rs: compare ClassifyResult against LabeledPrompt expected_label, compute overall accuracy, per-tier accuracy breakdown, precision, recall
+- [X] T006 [P] Implement dataset generation scaffold in src/dataset.rs: read reference sets, output JSON template with tier/polarity structure for LLM filling via generate_dataset_scaffold function
+- [X] T007 Add benchmark and generate-datasets subcommands to CLI in src/main.rs with clap: benchmark flags (--model, --dataset, --iterations, --warmup, --json, --output, --compare), generate-datasets flags (--sets-dir, --output-dir)
 
 **Checkpoint**: Benchmark loop runs against a single model + test dataset, generate-datasets outputs scaffold JSON
 
