@@ -1,4 +1,5 @@
 mod classifier;
+mod config;
 mod model;
 mod reference_set;
 mod server;

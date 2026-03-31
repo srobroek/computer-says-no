@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "Local embedding service for text classification using ONNX models"
+repository = "https://github.com/srobroek/computer-says-no"
+homepage = "https://github.com/srobroek/computer-says-no"
+readme = "README.md"
+keywords = ["embedding", "classification", "onnx", "nlp", "cli"]
+categories = ["command-line-utilities", "text-processing", "science"]
 
 [[bin]]
 name = "csn"
@@ -17,10 +22,9 @@ clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
-notify = "7"
-service-manager = "0.7"
+notify = { version = "7", default-features = false, features = ["macos_fsevent"] }
 directories = "6"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 blake3 = "1"
 anyhow = "1"
 tracing = "0.1"

@@ -15,9 +15,9 @@
 
 **Purpose**: Project structure, configuration, and crates.io metadata
 
-- [ ] T001 Update Cargo.toml with crates.io metadata (repository, homepage, keywords, categories, readme) and pin dependency features
-- [ ] T002 [P] Implement config module with 3-layer precedence (CLI > env > TOML > defaults) in src/config.rs per data-model AppConfig
-- [ ] T003 [P] Refactor src/model.rs: remove redundant model field, clean up allow(dead_code) annotations, ensure embed() works with shared Mutex pattern
+- [X] T001 Update Cargo.toml with crates.io metadata (repository, homepage, keywords, categories, readme) and pin dependency features
+- [X] T002 [P] Implement config module with 3-layer precedence (CLI > env > TOML > defaults) in src/config.rs per data-model AppConfig
+- [X] T003 [P] Refactor src/model.rs: remove redundant model field, clean up allow(dead_code) annotations, ensure embed() works with shared Mutex pattern
 
 **Checkpoint**: Config loading works, model wrapper is clean
 

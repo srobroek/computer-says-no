@@ -15,7 +15,6 @@ pub enum Mode {
 
 /// TOML metadata block.
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
 pub struct Metadata {
     pub name: String,
     pub description: Option<String>,
@@ -69,7 +68,6 @@ pub struct MultiCategoryEmbeddings {
 
 /// A fully loaded and embedded reference set, ready for classification.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct ReferenceSet {
     pub metadata: Metadata,
     pub kind: ReferenceSetKind,
