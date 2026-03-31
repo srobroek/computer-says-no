@@ -1,3 +1,5 @@
+exclude: '^(\.claude/|\.specify/|specs/)'
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -9,7 +11,6 @@ repos:
       - id: check-yaml
       - id: detect-private-key
       - id: end-of-file-fixer
-        exclude: '^\.claude/'
       - id: trailing-whitespace
 
   - repo: https://github.com/gitleaks/gitleaks
