@@ -21,8 +21,12 @@ test:
     cargo test
 
 [group('test')]
-bench:
-    cargo run -- benchmark
+bench *ARGS:
+    cargo run -- benchmark run {{ARGS}}
+
+[group('test')]
+bench-generate:
+    cargo run -- benchmark generate-datasets --sets-dir ./reference-sets
 
 # Lint
 

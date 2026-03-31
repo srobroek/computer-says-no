@@ -41,6 +41,7 @@ pub struct LabeledDataset {
 
 impl LabeledDataset {
     /// Count prompts by tier and polarity combination.
+    #[allow(dead_code)]
     pub fn count_by_bucket(&self) -> Vec<(Tier, Polarity, usize)> {
         let mut buckets = Vec::new();
         for tier in [Tier::Clear, Tier::Moderate, Tier::Edge] {

@@ -507,6 +507,7 @@ fn cmd_sets_list(config: &AppConfig) -> Result<()> {
 
 // --- Benchmark commands ---
 
+#[allow(clippy::too_many_arguments)]
 fn cmd_benchmark_run(
     config: &AppConfig,
     model_filter: Option<ModelChoice>,

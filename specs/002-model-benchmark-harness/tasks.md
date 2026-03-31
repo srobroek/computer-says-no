@@ -107,12 +107,12 @@
 
 **Purpose**: Quality, validation, and documentation
 
-- [ ] T021 Add unit tests for percentile calculation and accuracy computation in src/benchmark.rs
-- [ ] T022 [P] Add unit tests for dataset loading and scaffold generation in src/dataset.rs
+- [X] T021 Add unit tests for percentile calculation and accuracy computation in src/benchmark.rs
+- [X] T022 [P] Add unit tests for dataset loading and scaffold generation in src/dataset.rs
 - [ ] T023 Add integration test: run benchmark with test dataset (small, 6 prompts) against one model, verify output structure in tests/benchmark_test.rs
-- [ ] T024 Run cargo clippy -- -D warnings, cargo fmt --check, cargo test — fix any issues
+- [X] T024 Run cargo clippy -- -D warnings, cargo fmt --check, cargo test — fix any issues
 - [ ] T025 Validate SC-003 (85% corrections accuracy) and SC-004 (80% commit-types accuracy) by running full benchmark against generated datasets
-- [ ] T026 Update justfile: add `just bench` target that runs `cargo run -- benchmark`
+- [X] T026 Update justfile: add `just bench` target that runs `cargo run -- benchmark`
 
 ---
 
