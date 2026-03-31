@@ -46,11 +46,11 @@
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] Implement CLI classify as thin HTTP client in src/main.rs: POST to daemon /classify, display result (human-readable default, --json for machine-readable)
-- [ ] T009 [US1] Add daemon reachability check: if daemon unreachable, exit code 1 with warning to stderr suggesting `csn serve` in src/main.rs
-- [ ] T010 [US1] Add --json output flag to classify command with serde_json formatting per contracts/cli.md
-- [ ] T011 [US1] Handle error responses: non-existent reference set returns error listing available sets per contracts/rest-api.md
-- [ ] T012 [US1] Implement --standalone flag for classify/embed/similarity: load model in-process, classify without daemon, exit. Reuse EmbeddingEngine + classifier directly in src/main.rs
+- [X] T008 [US1] Implement CLI classify as thin HTTP client in src/main.rs: POST to daemon /classify, display result (human-readable default, --json for machine-readable)
+- [X] T009 [US1] Add daemon reachability check: if daemon unreachable, exit code 1 with warning to stderr suggesting `csn serve` in src/main.rs
+- [X] T010 [US1] Add --json output flag to classify command with serde_json formatting per contracts/cli.md
+- [X] T011 [US1] Handle error responses: non-existent reference set returns error listing available sets per contracts/rest-api.md
+- [X] T012 [US1] Implement --standalone flag for classify/embed/similarity: load model in-process, classify without daemon, exit. Reuse EmbeddingEngine + classifier directly in src/main.rs
 
 **Checkpoint**: `csn classify` works end-to-end against running daemon and in standalone mode. US1 is independently testable.
 
@@ -64,12 +64,12 @@
 
 ### Implementation for User Story 2
 
-- [ ] T013 [US2] Implement POST /classify endpoint with correct JSON response schema for both binary and multi-category modes per contracts/rest-api.md in src/server.rs
-- [ ] T014 [P] [US2] Implement POST /embed endpoint returning embedding vector, dimensions, model name per contracts/rest-api.md in src/server.rs
-- [ ] T015 [P] [US2] Implement POST /similarity endpoint returning cosine similarity score per contracts/rest-api.md in src/server.rs
-- [ ] T016 [P] [US2] Implement GET /health endpoint returning status, model, set count, uptime per contracts/rest-api.md in src/server.rs
-- [ ] T017 [P] [US2] Implement GET /sets endpoint returning reference set metadata list per contracts/rest-api.md in src/server.rs
-- [ ] T018 [US2] Add structured JSON error responses: 404 for missing set (with available names), 500 for embedding failures in src/server.rs
+- [X] T013 [US2] Implement POST /classify endpoint with correct JSON response schema for both binary and multi-category modes per contracts/rest-api.md in src/server.rs
+- [X] T014 [P] [US2] Implement POST /embed endpoint returning embedding vector, dimensions, model name per contracts/rest-api.md in src/server.rs
+- [X] T015 [P] [US2] Implement POST /similarity endpoint returning cosine similarity score per contracts/rest-api.md in src/server.rs
+- [X] T016 [P] [US2] Implement GET /health endpoint returning status, model, set count, uptime per contracts/rest-api.md in src/server.rs
+- [X] T017 [P] [US2] Implement GET /sets endpoint returning reference set metadata list per contracts/rest-api.md in src/server.rs
+- [X] T018 [US2] Add structured JSON error responses: 404 for missing set (with available names), 500 for embedding failures in src/server.rs
 
 **Checkpoint**: All REST endpoints match contracts. US2 is independently testable with curl.
 
@@ -83,10 +83,10 @@
 
 ### Implementation for User Story 3
 
-- [ ] T019 [US3] Implement file watcher using notify::RecommendedWatcher in src/watcher.rs: watch sets directory, filter for .toml changes, debounce within 500ms
-- [ ] T020 [US3] Wire watcher into daemon startup in src/server.rs: spawn watcher task, connect to AppState RwLock<Vec<ReferenceSet>> for atomic swap on reload
-- [ ] T021 [US3] Handle watcher edge cases: invalid TOML skipped with warning, deleted sets removed, zero-phrase sets rejected with error log
-- [ ] T022 [US3] Implement csn sets list as CLI command in src/main.rs: read sets directory directly (no daemon required), display name, mode, phrase count
+- [X] T019 [US3] Implement file watcher using notify::RecommendedWatcher in src/watcher.rs: watch sets directory, filter for .toml changes, debounce within 500ms
+- [X] T020 [US3] Wire watcher into daemon startup in src/server.rs: spawn watcher task, connect to AppState RwLock<Vec<ReferenceSet>> for atomic swap on reload
+- [X] T021 [US3] Handle watcher edge cases: invalid TOML skipped with warning, deleted sets removed, zero-phrase sets rejected with error log
+- [X] T022 [US3] Implement csn sets list as CLI command in src/main.rs: read sets directory directly (no daemon required), display name, mode, phrase count
 
 **Checkpoint**: Hot-reload works. US3 is independently testable by adding/modifying TOML files while daemon runs.
 
@@ -100,9 +100,9 @@
 
 ### Implementation for User Story 4
 
-- [ ] T023 [P] [US4] Implement csn embed as thin HTTP client in src/main.rs: POST to daemon /embed, display JSON result
-- [ ] T024 [P] [US4] Implement csn similarity as thin HTTP client in src/main.rs: POST to daemon /similarity, display score
-- [ ] T025 [US4] Implement csn models as local command in src/main.rs: list all ModelChoice variants with name and dimensions (no daemon required)
+- [X] T023 [P] [US4] Implement csn embed as thin HTTP client in src/main.rs: POST to daemon /embed, display JSON result
+- [X] T024 [P] [US4] Implement csn similarity as thin HTTP client in src/main.rs: POST to daemon /similarity, display score
+- [X] T025 [US4] Implement csn models as local command in src/main.rs: list all ModelChoice variants with name and dimensions (no daemon required)
 
 **Checkpoint**: All CLI commands work. US4 is independently testable.
 
@@ -112,11 +112,11 @@
 
 **Purpose**: Quality, edge cases, and distribution readiness
 
-- [ ] T026 Add unit tests for config.rs: test 3-layer precedence, missing file fallback, env var override
-- [ ] T027 [P] Add unit tests for watcher.rs: test debounce logic, invalid file handling
-- [ ] T028 Add integration test in tests/integration/: start daemon, classify via REST, verify response matches contract
-- [ ] T029 [P] Handle edge cases from spec: port-in-use detection with clear error, model download on first use, config file missing fallback
-- [ ] T030 Run cargo clippy -- -D warnings, cargo fmt --check, cargo test — fix any issues
+- [X] T026 Add unit tests for config.rs: test 3-layer precedence, missing file fallback, env var override
+- [X] T027 [P] Add unit tests for watcher.rs: test debounce logic, invalid file handling
+- [X] T028 Add integration test in tests/integration/: start daemon, classify via REST, verify response matches contract
+- [X] T029 [P] Handle edge cases from spec: port-in-use detection with clear error, model download on first use, config file missing fallback
+- [X] T030 Run cargo clippy -- -D warnings, cargo fmt --check, cargo test — fix any issues
 - [ ] T031 Verify SC-001 (warm latency <50ms) with hyperfine benchmark against running daemon
 
 ---

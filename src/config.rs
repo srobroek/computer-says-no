@@ -23,6 +23,7 @@ pub struct AppConfig {
     pub model: ModelChoice,
     pub log_level: String,
     pub sets_dir: PathBuf,
+    #[allow(dead_code)]
     pub config_dir: PathBuf,
     pub cache_dir: PathBuf,
 }
@@ -115,13 +116,11 @@ impl AppConfig {
             return self.sets_dir.clone();
         }
         // Fallback: check next to binary
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(parent) = exe.parent() {
-                let bundled = parent.join("reference-sets");
-                if bundled.exists() {
-                    return bundled;
-                }
-            }
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(bundled) = exe.parent().map(|p| p.join("reference-sets"))
+            && bundled.exists()
+        {
+            return bundled;
         }
         // Fallback: check CWD
         let cwd = PathBuf::from("reference-sets");

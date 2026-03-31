@@ -45,6 +45,7 @@ pub enum ClassifyResult {
     MultiCategory(MultiCategoryResult),
 }
 
+#[allow(dead_code)]
 impl ClassifyResult {
     pub fn is_match(&self) -> bool {
         match self {

@@ -1,12 +1,10 @@
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher, event::ModifyKind};
 use tokio::sync::mpsc;
 
-use crate::model::EmbeddingEngine;
-use crate::reference_set::{ReferenceSet, load_all_reference_sets};
+use crate::reference_set::load_all_reference_sets;
 use crate::server::AppState;
 
 const DEBOUNCE_MS: u64 = 500;
@@ -56,12 +54,12 @@ pub fn start_watcher(state: Arc<AppState>) -> anyhow::Result<RecommendedWatcher>
 }
 
 fn is_toml_change(event: &notify::Event) -> bool {
-    let dominated_by_toml = event
+    let has_toml = event
         .paths
         .iter()
         .any(|p| p.extension().is_some_and(|ext| ext == "toml"));
 
-    if !dominated_by_toml {
+    if !has_toml {
         return false;
     }
 
@@ -88,5 +86,64 @@ fn reload_sets(state: &AppState) {
         Err(e) => {
             tracing::error!(error = %e, "failed to reload reference sets, keeping previous");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn make_event(kind: EventKind, path: &str) -> notify::Event {
+        notify::Event {
+            kind,
+            paths: vec![PathBuf::from(path)],
+            attrs: Default::default(),
+        }
+    }
+
+    #[test]
+    fn toml_create_is_change() {
+        let event = make_event(
+            EventKind::Create(notify::event::CreateKind::File),
+            "/tmp/sets/test.toml",
+        );
+        assert!(is_toml_change(&event));
+    }
+
+    #[test]
+    fn toml_modify_data_is_change() {
+        let event = make_event(
+            EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Content)),
+            "/tmp/sets/test.toml",
+        );
+        assert!(is_toml_change(&event));
+    }
+
+    #[test]
+    fn toml_remove_is_change() {
+        let event = make_event(
+            EventKind::Remove(notify::event::RemoveKind::File),
+            "/tmp/sets/test.toml",
+        );
+        assert!(is_toml_change(&event));
+    }
+
+    #[test]
+    fn non_toml_file_ignored() {
+        let event = make_event(
+            EventKind::Create(notify::event::CreateKind::File),
+            "/tmp/sets/readme.md",
+        );
+        assert!(!is_toml_change(&event));
+    }
+
+    #[test]
+    fn toml_access_event_ignored() {
+        let event = make_event(
+            EventKind::Access(notify::event::AccessKind::Read),
+            "/tmp/sets/test.toml",
+        );
+        assert!(!is_toml_change(&event));
     }
 }

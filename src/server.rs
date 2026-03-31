@@ -134,7 +134,16 @@ pub async fn serve(config: &AppConfig) -> anyhow::Result<()> {
 
     let addr = format!("127.0.0.1:{}", config.port);
     tracing::info!(%addr, elapsed = ?start.elapsed(), "server ready");
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    let listener = tokio::net::TcpListener::bind(&addr).await.map_err(|e| {
+        if e.kind() == std::io::ErrorKind::AddrInUse {
+            anyhow::anyhow!(
+                "port {} is already in use — is another csn instance running?",
+                config.port
+            )
+        } else {
+            anyhow::anyhow!("failed to bind {}: {}", addr, e)
+        }
+    })?;
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())

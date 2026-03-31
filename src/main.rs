@@ -237,7 +237,7 @@ fn check_daemon(config: &AppConfig) -> Result<reqwest::blocking::Client> {
         .build()?;
 
     client
-        .get(&daemon_url(config, "/health"))
+        .get(daemon_url(config, "/health"))
         .send()
         .with_context(|| {
             format!(
@@ -253,7 +253,7 @@ fn cmd_classify_remote(config: &AppConfig, text: &str, set_name: &str, json: boo
     let client = check_daemon(config)?;
 
     let resp = client
-        .post(&daemon_url(config, "/classify"))
+        .post(daemon_url(config, "/classify"))
         .json(&serde_json::json!({"text": text, "reference_set": set_name}))
         .send()?;
 
@@ -273,7 +273,7 @@ fn cmd_embed_remote(config: &AppConfig, text: &str) -> Result<()> {
     let client = check_daemon(config)?;
 
     let resp = client
-        .post(&daemon_url(config, "/embed"))
+        .post(daemon_url(config, "/embed"))
         .json(&serde_json::json!({"text": text}))
         .send()?;
 
@@ -294,7 +294,7 @@ fn cmd_similarity_remote(config: &AppConfig, a: &str, b: &str) -> Result<()> {
     let client = check_daemon(config)?;
 
     let resp = client
-        .post(&daemon_url(config, "/similarity"))
+        .post(daemon_url(config, "/similarity"))
         .json(&serde_json::json!({"a": a, "b": b}))
         .send()?;
 

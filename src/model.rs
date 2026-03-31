@@ -124,6 +124,7 @@ impl std::fmt::Display for ModelChoice {
 /// Wrapper around fastembed's TextEmbedding with cosine similarity.
 pub struct EmbeddingEngine {
     inner: TextEmbedding,
+    #[allow(dead_code)]
     model: ModelChoice,
 }
 
@@ -139,10 +140,12 @@ impl EmbeddingEngine {
         Ok(Self { inner, model })
     }
 
+    #[allow(dead_code)]
     pub fn model(&self) -> ModelChoice {
         self.model
     }
 
+    #[allow(dead_code)]
     pub fn dimensions(&self) -> usize {
         self.model.dimensions()
     }
