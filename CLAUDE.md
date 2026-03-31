@@ -64,6 +64,8 @@ just clean        # cargo clean
 ## Active Technologies
 - Rust 2024 edition (1.85+) + fastembed 5.13, axum 0.8, clap 4, notify 7, tokio 1 (001-core-binary-cli)
 - Filesystem — TOML config, TOML reference sets, binary embedding cache (blake3-hashed) (001-core-binary-cli)
+- Rust 2024 edition (1.85+) + fastembed 5.13 (existing), clap 4 (existing), serde_json (existing), indicatif (progress — already transitive dep of fastembed), comfy-table (NEW — table formatting) (002-model-benchmark-harness)
+- JSON files in `datasets/` directory, JSON output for results (002-model-benchmark-harness)
 
 ## Recent Changes
 - 001-core-binary-cli: Full implementation — config, server (RwLock + graceful shutdown), CLI (thin HTTP + standalone), file watcher, embedding cache (blake3), 17 unit tests + integration test
