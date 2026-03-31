@@ -1,5 +1,7 @@
+mod benchmark;
 mod classifier;
 mod config;
+mod dataset;
 mod embedding_cache;
 mod model;
 mod reference_set;

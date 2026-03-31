@@ -29,6 +29,8 @@ blake3 = "1"
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+comfy-table = "7"
+indicatif = "0.17"
 
 [profile.release]
 opt-level = 3
