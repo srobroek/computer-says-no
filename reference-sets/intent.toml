@@ -1,0 +1,35 @@
+[metadata]
+name = "intent"
+description = "Classify developer messages by intent: question, statement, or command"
+mode = "multi-category"
+threshold = 0.4
+
+[categories.question]
+phrases = [
+    "what does this function do",
+    "how do I use async/await",
+    "why is this failing",
+    "can you explain this pattern",
+    "what's the difference between X and Y",
+    "is there a better way to do this",
+]
+
+[categories.command]
+phrases = [
+    "create a new file",
+    "fix this bug",
+    "add error handling",
+    "refactor this function",
+    "write tests for the API",
+    "implement the login flow",
+]
+
+[categories.statement]
+phrases = [
+    "this function returns a boolean",
+    "the API uses REST",
+    "we're using PostgreSQL",
+    "the build is passing",
+    "authentication is handled by middleware",
+    "the config is loaded from environment variables",
+]
