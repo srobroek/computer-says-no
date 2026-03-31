@@ -111,7 +111,7 @@
 - [X] T022 [P] Add unit tests for dataset loading and scaffold generation in src/dataset.rs
 - [X] T023 Add integration test: run benchmark with test dataset (small, 6 prompts) against one model, verify output structure in tests/benchmark_test.rs
 - [X] T024 Run cargo clippy -- -D warnings, cargo fmt --check, cargo test — fix any issues
-- [X] T025 Validate SC-003 (85% corrections accuracy) and SC-004 (80% commit-types accuracy) by running full benchmark against generated datasets
+- [ ] T025 Validate SC-003 (85% corrections accuracy) and SC-004 (80% commit-types accuracy) by running full benchmark against generated datasets (deferred: requires model loading outside sandbox/CI)
 - [X] T026 Update justfile: add `just bench` target that runs `cargo run -- benchmark`
 
 ---
