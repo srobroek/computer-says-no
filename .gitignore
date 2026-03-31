@@ -1,6 +1,5 @@
 # Rust
 /target
-Cargo.lock
 
 # Model cache
 .fastembed_cache/

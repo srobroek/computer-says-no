@@ -216,7 +216,7 @@ pub fn compare_strategies(
 
     let adaptive_threshold = calibrate_adaptive_threshold(engine, ref_set, &neg_prompts);
 
-    let strategies = vec![
+    let strategies = [
         ScoringStrategy::Threshold,
         ScoringStrategy::margin(0.02),
         ScoringStrategy::margin(0.05),
