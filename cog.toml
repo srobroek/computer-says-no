@@ -1,0 +1,18 @@
+from_latest_tag = true
+ignore_merge_commits = true
+branch_whitelist = ["main"]
+tag_prefix = "v"
+
+[changelog]
+path = "CHANGELOG.md"
+template = "full_hash"
+
+[commit_types]
+feat = { changelog_title = "Features" }
+fix = { changelog_title = "Bug Fixes" }
+refactor = { changelog_title = "Refactoring" }
+docs = { changelog_title = "Documentation" }
+test = { changelog_title = "Tests" }
+ci = { changelog_title = "CI/CD" }
+perf = { changelog_title = "Performance" }
+chore = { changelog_title = "Chores", omit_from_changelog = true }

@@ -1,0 +1,65 @@
+[metadata]
+name = "commit-types"
+description = "Classify text into conventional commit types"
+mode = "multi-category"
+threshold = 0.40
+
+[categories.feat]
+phrases = [
+    "add new feature",
+    "implement functionality",
+    "create new endpoint",
+    "add support for",
+    "introduce new capability",
+    "build out the interface",
+]
+
+[categories.fix]
+phrases = [
+    "fix bug",
+    "resolve issue",
+    "patch error",
+    "correct the behavior",
+    "handle edge case",
+    "repair broken functionality",
+]
+
+[categories.refactor]
+phrases = [
+    "restructure code",
+    "clean up implementation",
+    "reorganize module",
+    "simplify logic",
+    "extract function",
+    "rename for clarity",
+]
+
+[categories.docs]
+phrases = [
+    "update documentation",
+    "add comments",
+    "write readme",
+    "document the API",
+    "add usage examples",
+    "improve inline docs",
+]
+
+[categories.chore]
+phrases = [
+    "update dependencies",
+    "configure tooling",
+    "adjust build settings",
+    "update CI pipeline",
+    "bump version",
+    "clean up config files",
+]
+
+[categories.test]
+phrases = [
+    "add unit tests",
+    "write integration test",
+    "increase test coverage",
+    "add test cases",
+    "fix flaky test",
+    "add benchmark",
+]

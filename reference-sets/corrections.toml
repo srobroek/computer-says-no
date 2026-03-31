@@ -1,0 +1,65 @@
+[metadata]
+name = "corrections"
+description = "Detect user corrections and negative feedback"
+mode = "binary"
+threshold = 0.45
+
+[phrases]
+positive = [
+    # Explicit corrections
+    "no, use X instead",
+    "that's wrong, it should be",
+    "stop doing that",
+    "I said don't do that",
+    "no not that",
+    "wrong approach",
+    "that's not what I asked for",
+    "you're doing it wrong",
+    "please don't do that again",
+    "I already told you not to",
+    "no, I meant",
+    "that's incorrect",
+    "you misunderstood",
+    "not like that",
+    "undo that",
+    # Soft corrections
+    "hmm, not quite what I meant",
+    "actually, I wanted something different",
+    "close but not exactly",
+    "let me clarify what I actually need",
+    "that's not really what I was looking for",
+    # Frustration signals
+    "you keep doing the same thing",
+    "why do you keep ignoring",
+    "I've told you multiple times",
+    "again, please don't",
+    "this is the third time I've asked",
+]
+
+negative = [
+    # Polite redirects (not corrections)
+    "can you try a different approach?",
+    "what about using X instead?",
+    "have you considered an alternative?",
+    "let's explore another option",
+    # New requests
+    "now let's work on something else",
+    "next, I'd like you to",
+    "can you also add",
+    "moving on to the next task",
+    # Questions
+    "how does this work?",
+    "what does this function do?",
+    "can you explain this?",
+    "why did you choose this approach?",
+    # Approval
+    "looks good",
+    "that's perfect",
+    "yes, exactly",
+    "great work",
+    "nice, thanks",
+    # Greetings
+    "hello",
+    "hey there",
+    "good morning",
+]

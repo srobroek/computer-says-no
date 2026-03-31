@@ -1,0 +1,31 @@
+# Rust
+/target
+Cargo.lock
+
+# Model cache
+.fastembed_cache/
+
+# Embedding caches (binary)
+*.bin
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code
+.claude/worktrees/
+.claude/handover/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Repomix
+repomix-output.xml
+repomix.config.json

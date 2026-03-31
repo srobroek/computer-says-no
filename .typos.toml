@@ -1,0 +1,15 @@
+[default]
+locale = "en-us"
+
+[default.extend-words]
+# Domain-specific words
+onnx = "onnx"
+nomic = "nomic"
+fastembed = "fastembed"
+
+[files]
+extend-exclude = [
+    "target/",
+    ".claude/",
+    "datasets/",
+]

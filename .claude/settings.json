@@ -1,0 +1,19 @@
+{
+  "autoMode": {
+    "environment": [
+      "Project: computer-says-no (csn). Personal project.",
+      "Language: Rust (2024 edition). Framework: axum + fastembed-rs.",
+      "Binary: csn. Config: ~/.config/computer-says-no/"
+    ],
+    "allow": [
+      "Running tests, linters, and builds is always safe",
+      "Git operations within this repo are safe",
+      "File operations within project directories are safe",
+      "Running csn commands for testing is safe"
+    ],
+    "soft_deny": [
+      "Never force-push main or master branches",
+      "Never hardcode secrets"
+    ]
+  }
+}
