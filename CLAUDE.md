@@ -63,3 +63,10 @@ just clean        # cargo clean
 - Unit tests: `cargo test`
 - Benchmarks: `csn benchmark` (accuracy + latency across models × datasets)
 - Integration: start daemon → run hooks → verify classification output
+
+## Active Technologies
+- Rust 2024 edition (1.85+) + fastembed 5.13, axum 0.8, clap 4, notify 7, tokio 1 (001-core-binary-cli)
+- Filesystem — TOML config, TOML reference sets, binary embedding cache (blake3-hashed) (001-core-binary-cli)
+
+## Recent Changes
+- 001-core-binary-cli: Added Rust 2024 edition (1.85+) + fastembed 5.13, axum 0.8, clap 4, notify 7, tokio 1
