@@ -24,6 +24,30 @@ repos:
       - id: typos
         args: ['--force-exclude']
 
+  # Rust formatting & linting
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all --
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --all-targets -- -D warnings
+        language: system
+        stages: [pre-push]
+        types: [rust]
+        pass_filenames: false
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test
+        language: system
+        stages: [pre-push]
+        types: [rust]
+        pass_filenames: false
+
   - repo: https://github.com/alexander-bauer/cocogitto-pre-commit
     rev: v0.1.0
     hooks:
