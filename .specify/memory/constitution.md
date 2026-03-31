@@ -46,7 +46,7 @@ modify, or remove sets without rebuilding.
 - Binary mode: positive + negative phrases, threshold
 - Multi-category mode: named categories with phrases, best-match wins
 - Reference sets MUST be hot-reloaded on file change (no daemon restart)
-- Remote sets (URL source) MUST be periodically refreshed
+- Remote sets (URL source) SHOULD be periodically refreshed (deferred to spec 003)
 
 **Rationale**: The tool is a general-purpose embedding classifier. Correction detection
 is the first use case, not the only one. Hardcoding classification logic would limit
