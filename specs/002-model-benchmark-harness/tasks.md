@@ -63,10 +63,10 @@
 
 ### Implementation for User Story 2
 
-- [ ] T012 [US2] Implement generate_dataset_scaffold in src/dataset.rs: read reference set metadata (name, mode, categories/phrases), output JSON with tier/polarity structure and example prompts as seeds
+- [X] T012 [US2] Implement generate_dataset_scaffold in src/dataset.rs: read reference set metadata (name, mode, categories/phrases), output JSON with tier/polarity structure and example prompts as seeds
 - [ ] T013 [US2] Generate corrections dataset (500 prompts) in datasets/corrections.json: use LLM subagent to create 83 prompts per tier (clear_pos, moderate_pos, edge_pos, clear_neg, moderate_neg, edge_neg) seeded from corrections.toml phrases
 - [ ] T014 [P] [US2] Generate commit-types dataset (500 prompts) in datasets/commit-types.json: use LLM subagent to create 83 prompts per tier seeded from commit-types.toml categories
-- [ ] T015 [US2] Wire generate-datasets into src/main.rs: read reference sets from sets_dir, call generate_dataset_scaffold, write to output_dir
+- [X] T015 [US2] Wire generate-datasets into src/main.rs: read reference sets from sets_dir, call generate_dataset_scaffold, write to output_dir
 
 **Checkpoint**: datasets/ contains corrections.json and commit-types.json with 500 labeled prompts each. US2 independently testable.
 
@@ -80,9 +80,9 @@
 
 ### Implementation for User Story 3
 
-- [ ] T016 [US3] Implement --model filter in src/benchmark.rs: parse model name, validate against ModelChoice::all(), run only matching model
-- [ ] T017 [US3] Implement --dataset filter in src/benchmark.rs: validate dataset name against available files in datasets_dir, run only matching dataset
-- [ ] T018 [US3] Handle filter edge cases: invalid model name → error listing available models, invalid dataset → error listing available datasets, no datasets found → suggest generate-datasets
+- [X] T016 [US3] Implement --model filter in src/benchmark.rs: parse model name, validate against ModelChoice::all(), run only matching model
+- [X] T017 [US3] Implement --dataset filter in src/benchmark.rs: validate dataset name against available files in datasets_dir, run only matching dataset
+- [X] T018 [US3] Handle filter edge cases: invalid model name → error listing available models, invalid dataset → error listing available datasets, no datasets found → suggest generate-datasets
 
 **Checkpoint**: Filtered benchmarks work. `csn benchmark --model X --dataset Y` runs single combination. US3 independently testable.
 
@@ -96,8 +96,8 @@
 
 ### Implementation for User Story 4
 
-- [ ] T019 [US4] Implement --compare in src/benchmark.rs: load previous BenchmarkRun from JSON, diff accuracy and latency per model-dataset combination, report regressions (accuracy drop >1%, latency increase >20%)
-- [ ] T020 [US4] Implement regression display in src/benchmark.rs: format comparison output with arrows (▲/▼), highlight regressions with warning markers
+- [X] T019 [US4] Implement --compare in src/benchmark.rs: load previous BenchmarkRun from JSON, diff accuracy and latency per model-dataset combination, report regressions (accuracy drop >1%, latency increase >20%)
+- [X] T020 [US4] Implement regression display in src/benchmark.rs: format comparison output with arrows (▲/▼), highlight regressions with warning markers
 
 **Checkpoint**: `csn benchmark --output a.json` then `csn benchmark --compare a.json` shows diff. US4 independently testable.
 
