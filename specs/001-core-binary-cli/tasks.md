@@ -117,7 +117,7 @@
 - [X] T028 Add integration test in tests/integration/: start daemon, classify via REST, verify response matches contract
 - [X] T029 [P] Handle edge cases from spec: port-in-use detection with clear error, model download on first use, config file missing fallback
 - [X] T030 Run cargo clippy -- -D warnings, cargo fmt --check, cargo test — fix any issues
-- [ ] T031 Verify SC-001 (warm latency <50ms) with hyperfine benchmark against running daemon
+- [X] T031 Verify SC-001 (warm latency <50ms) with hyperfine benchmark against running daemon
 
 ---
 
