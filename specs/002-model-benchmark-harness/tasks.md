@@ -46,10 +46,10 @@
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] Implement full benchmark orchestration in src/benchmark.rs: iterate all models (or filtered by --model), all datasets (or filtered by --dataset), collect ModelResult vec, display progress via indicatif ProgressBar
-- [ ] T009 [US1] Implement human-readable table output in src/benchmark.rs using comfy-table: model × dataset matrix showing accuracy, edge accuracy, p50, p95, cold startup, with "Best" recommendation per dataset
-- [ ] T010 [US1] Implement --json output in src/benchmark.rs: serialize BenchmarkRun to JSON via serde_json, support --output <path> to write to file
-- [ ] T011 [US1] Wire benchmark orchestration into src/main.rs: load config, resolve datasets_dir, call run_benchmark, handle output format
+- [X] T008 [US1] Implement full benchmark orchestration in src/benchmark.rs: iterate all models (or filtered by --model), all datasets (or filtered by --dataset), collect ModelResult vec, display progress via indicatif ProgressBar
+- [X] T009 [US1] Implement human-readable table output in src/benchmark.rs using comfy-table: model × dataset matrix showing accuracy, edge accuracy, p50, p95, cold startup, with "Best" recommendation per dataset
+- [X] T010 [US1] Implement --json output in src/benchmark.rs: serialize BenchmarkRun to JSON via serde_json, support --output <path> to write to file
+- [X] T011 [US1] Wire benchmark orchestration into src/main.rs: load config, resolve datasets_dir, call run_benchmark, handle output format
 
 **Checkpoint**: `csn benchmark` runs all models against test dataset, outputs comparison table. US1 independently testable.
 

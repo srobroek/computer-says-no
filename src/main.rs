@@ -283,13 +283,22 @@ fn main() -> Result<()> {
                 compare,
                 datasets_dir,
             } => {
+                let model_filter = model;
                 let config = AppConfig::load(CliOverrides {
-                    model,
                     datasets_dir,
                     ..Default::default()
                 })?;
                 init_tracing(&config.log_level);
-                cmd_benchmark_run(&config, dataset, iterations, warmup, json, output, compare)
+                cmd_benchmark_run(
+                    &config,
+                    model_filter,
+                    dataset,
+                    iterations,
+                    warmup,
+                    json,
+                    output,
+                    compare,
+                )
             }
             BenchmarkAction::GenerateDatasets {
                 sets_dir,
@@ -500,15 +509,16 @@ fn cmd_sets_list(config: &AppConfig) -> Result<()> {
 
 fn cmd_benchmark_run(
     config: &AppConfig,
-    _dataset_filter: Option<String>,
-    _iterations: usize,
-    _warmup: usize,
-    _json: bool,
-    _output: Option<PathBuf>,
-    _compare: Option<PathBuf>,
+    model_filter: Option<ModelChoice>,
+    dataset_filter: Option<String>,
+    iterations: usize,
+    warmup: usize,
+    json: bool,
+    output: Option<PathBuf>,
+    compare: Option<PathBuf>,
 ) -> Result<()> {
     let datasets_dir = &config.datasets_dir;
-    let datasets = dataset::load_all_datasets(datasets_dir)?;
+    let mut datasets = dataset::load_all_datasets(datasets_dir)?;
 
     if datasets.is_empty() {
         anyhow::bail!(
@@ -517,14 +527,64 @@ fn cmd_benchmark_run(
         );
     }
 
-    println!(
-        "Found {} dataset(s) in {}",
-        datasets.len(),
-        datasets_dir.display()
-    );
+    // Apply dataset filter
+    if let Some(ref filter) = dataset_filter {
+        datasets.retain(|d| d.name == *filter);
+        if datasets.is_empty() {
+            let available: Vec<_> = dataset::load_all_datasets(datasets_dir)?
+                .iter()
+                .map(|d| d.name.clone())
+                .collect();
+            anyhow::bail!(
+                "dataset '{}' not found. Available: {}",
+                filter,
+                available.join(", ")
+            );
+        }
+    }
 
-    // TODO: T008-T011 will implement the full orchestration loop
-    println!("Benchmark orchestration not yet implemented (T008-T011)");
+    // Determine models to test
+    let models: Vec<ModelChoice> = if let Some(m) = model_filter {
+        vec![m]
+    } else {
+        ModelChoice::all().to_vec()
+    };
+
+    let sets_dir = config.resolve_sets_dir();
+    let run = benchmark::run_benchmark(
+        &models,
+        &datasets,
+        &sets_dir,
+        &config.cache_dir,
+        warmup,
+        iterations,
+    )?;
+
+    // Output results
+    if json {
+        let json_str = serde_json::to_string_pretty(&run)?;
+        println!("{json_str}");
+    } else {
+        benchmark::print_table(&run);
+    }
+
+    // Save to file if requested
+    if let Some(ref path) = output {
+        let json_str = serde_json::to_string_pretty(&run)?;
+        std::fs::write(path, json_str)
+            .with_context(|| format!("writing results to {}", path.display()))?;
+        println!("\nResults saved to {}", path.display());
+    }
+
+    // Compare against previous run
+    if let Some(ref path) = compare {
+        let prev_json = std::fs::read_to_string(path)
+            .with_context(|| format!("reading previous results from {}", path.display()))?;
+        let prev_run: benchmark::BenchmarkRun = serde_json::from_str(&prev_json)
+            .with_context(|| format!("parsing previous results from {}", path.display()))?;
+        benchmark::print_comparison(&run, &prev_run);
+    }
+
     Ok(())
 }
 
