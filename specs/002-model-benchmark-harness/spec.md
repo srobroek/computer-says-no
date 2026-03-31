@@ -89,14 +89,14 @@ A developer wants to track benchmark results over time to detect regressions. Th
 - **FR-002**: System MUST test all 12 supported models unless filtered by `--model`.
 - **FR-003**: System MUST test all available labeled datasets unless filtered by `--dataset`.
 - **FR-004**: System MUST warm each model before measurement by running a configurable number of warm-up iterations (default: 5) to exclude cold startup from latency.
-- **FR-005**: System MUST measure warm classification latency per iteration and report p50, p95, and p99 percentiles.
+- **FR-005**: System MUST measure warm classification latency across 20 measured iterations per prompt (configurable via `--iterations`) and report p50, p95, and p99 percentiles.
 - **FR-005a**: System MUST measure cold startup latency per model (time from model load to first successful embedding) and include it in results.
 - **FR-006**: System MUST compute accuracy as the percentage of correctly classified prompts per model-dataset combination.
 - **FR-007**: System MUST output results as a human-readable comparison matrix to stdout by default.
 - **FR-008**: System MUST support `--json` for machine-readable output containing all metrics.
 - **FR-009**: System MUST support `--output <path>` to save results to a file.
 - **FR-010**: System MUST provide a `csn benchmark generate-datasets` subcommand that creates labeled test datasets.
-- **FR-011**: System MUST generate at least 50 labeled prompts per reference set, covering both positive matches and negative/non-matching examples.
+- **FR-011**: System MUST generate at least 50 labeled prompts per reference set using LLM-based generation from reference set phrases as seeds, covering both positive matches and negative/non-matching examples.
 - **FR-012**: System MUST store datasets as JSON files in the datasets directory with text, expected label, and reference set name.
 - **FR-013**: System MUST support `--compare <path>` to diff results against a previous benchmark run, highlighting regressions.
 - **FR-014**: System MUST display a progress indicator during benchmark execution showing current model, dataset, and iteration count.
@@ -118,11 +118,18 @@ A developer wants to track benchmark results over time to detect regressions. Th
 - **SC-005**: Each generated dataset contains at least 50 labeled prompts with balanced positive/negative (binary) or category (multi-category) distribution.
 - **SC-006**: Benchmark results are reproducible — running the same benchmark twice on the same machine produces accuracy within 1% and latency within 20%.
 
+## Clarifications
+
+### Session 2026-03-31
+
+- Q: How should labeled datasets be generated? → A: LLM-generated from reference set phrases as seeds, with labels derived from generation context. Parallelizable per reference set via subagents.
+- Q: How many measured iterations per prompt for latency percentiles? → A: 20 iterations per prompt (default), configurable via `--iterations` flag.
+
 ## Assumptions
 
 - The benchmark runs on the same machine as the development environment — no remote execution or CI integration in this spec.
 - All 12 models can be downloaded and cached locally. Benchmark setup (model download) is not time-bounded — only measured iterations are.
 - Labeled datasets are static JSON files generated once and stored in the repository. They can be regenerated but don't change between benchmark runs unless explicitly regenerated.
-- Dataset generation uses the existing reference set phrases as seeds for generating realistic test prompts. The generation logic is deterministic for reproducibility.
+- Dataset generation uses an LLM to generate diverse, realistic test prompts from reference set phrases as seeds. Labels are derived from the generation context (e.g., prompts generated as "correction examples" are labeled as matches). Each reference set can be generated independently in parallel via subagents.
 - The benchmark uses the standalone (in-process) path, not the daemon, to avoid network overhead in measurements. Each model is loaded once, warmed up, then all datasets are run against it before moving to the next model.
 - Dataset generation is a one-time setup step — it does not need to be fast. Accuracy and coverage matter more than generation speed.
