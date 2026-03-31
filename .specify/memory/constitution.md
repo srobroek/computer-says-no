@@ -31,7 +31,8 @@ and CLI clients. The `/sse` endpoint serves Claude Code agents via MCP.
 
 - MUST bind `127.0.0.1` only — never expose to network
 - MUST NOT require separate MCP client or wrapper process
-- CLI commands MUST act as thin HTTP clients to the daemon (with `--standalone` fallback)
+- CLI commands MUST act as thin HTTP clients to the daemon by default (fail fast if unreachable)
+- `--standalone` flag enables in-process mode (cold start, no server) for one-off use
 
 **Rationale**: Two protocols exist because two consumers exist (hooks call REST, agents
 call MCP). Merging them onto one port eliminates coordination and port conflicts.
@@ -45,7 +46,7 @@ modify, or remove sets without rebuilding.
 - Binary mode: positive + negative phrases, threshold
 - Multi-category mode: named categories with phrases, best-match wins
 - Reference sets MUST be hot-reloaded on file change (no daemon restart)
-- Remote sets (URL source) MUST be periodically refreshed
+- Remote sets (URL source) SHOULD be periodically refreshed (deferred to spec 003)
 
 **Rationale**: The tool is a general-purpose embedding classifier. Correction detection
 is the first use case, not the only one. Hardcoding classification logic would limit
@@ -54,12 +55,11 @@ adoption to a single workflow.
 ### IV. Warm-First Performance
 
 Classification latency MUST be under 50ms p95 when the daemon is running (warm path).
-Cold-start CLI is acceptable at 1-2s but MUST NOT be the primary path.
+CLI MUST fail fast if daemon is unreachable (unless `--standalone` is explicitly passed).
 
 - Model loading happens once at daemon startup
 - Reference set embeddings are precomputed and cached (blake3 content hash)
 - File watcher re-embeds changed sets in background (~150ms for 25 phrases)
-- Lazy daemon start: if CLI detects daemon is down, start it in background, skip this call
 
 **Rationale**: Hooks run on every prompt submission. Latency above 50ms is perceptible
 and degrades the interactive coding experience.
@@ -110,4 +110,4 @@ Amendments require:
 All specs and plans MUST include a Constitution Check verifying compliance with
 these principles. Violations MUST be justified in the Complexity Tracking section.
 
-**Version**: 1.0.0 | **Ratified**: 2026-03-31 | **Last Amended**: 2026-03-31
+**Version**: 1.0.1 | **Ratified**: 2026-03-31 | **Last Amended**: 2026-03-31

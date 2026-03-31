@@ -4,20 +4,18 @@ Local embedding service for text classification using ONNX models via fastembed-
 
 ## Architecture
 
-Single Rust binary serving two protocols on one port:
+Single Rust binary with CLI and REST daemon:
 - **REST API** — hooks and CLI call `/classify`, `/embed`, `/similarity`, `/health`, `/sets`
-- **MCP/SSE** — Claude Code agent connects to `/sse` for tool access
+- **CLI** — thin HTTP clients to daemon, `--standalone` for in-process mode
+- **MCP/SSE** — planned for spec 004
 
 ## Directory Structure
 
 ```
-src/              Rust source (main.rs, server.rs, classifier.rs, model.rs, reference_set.rs, watcher.rs, service.rs)
+src/              Rust source (main.rs, config.rs, server.rs, classifier.rs, model.rs, reference_set.rs, embedding_cache.rs, watcher.rs)
 reference-sets/   Default TOML reference sets (shipped with binary)
-datasets/         Labeled test prompts for benchmarking (JSON)
-hooks/            Example Claude Code hook scripts
-tests/            Integration tests and benchmark harness
-docs/             Documentation
-scripts/          Build tooling, automation
+tests/            Integration tests
+specs/            Feature specifications (speckit)
 ```
 
 ## Commands
@@ -44,10 +42,9 @@ just clean        # cargo clean
 | fastembed | 5.13 | ONNX embedding models |
 | axum | 0.8 | HTTP server (REST + SSE) |
 | clap | 4 | CLI argument parsing |
-| notify | 7 | Cross-platform file watcher |
-| service-manager | 0.7 | Cross-platform service install |
-| blake3 | 1 | Content hashing for cache |
-| reqwest | 0.12 | HTTP client (CLI→daemon, remote sets) |
+| notify | 7 | File watcher for hot-reload |
+| blake3 | 1 | Content hashing for embedding cache |
+| reqwest | 0.12 | HTTP client (CLI→daemon) |
 
 ## Conventions
 
@@ -60,6 +57,13 @@ just clean        # cargo clean
 
 ## Testing
 
-- Unit tests: `cargo test`
-- Benchmarks: `csn benchmark` (accuracy + latency across models × datasets)
-- Integration: start daemon → run hooks → verify classification output
+- Unit tests: `cargo test --bin csn` (17 tests: config, model, classifier, reference_set, watcher, embedding_cache)
+- Integration: `cargo test --test integration_test` (starts daemon subprocess, tests all REST endpoints)
+- Benchmarks: planned for spec 002 (labeled datasets + accuracy validation)
+
+## Active Technologies
+- Rust 2024 edition (1.85+) + fastembed 5.13, axum 0.8, clap 4, notify 7, tokio 1 (001-core-binary-cli)
+- Filesystem — TOML config, TOML reference sets, binary embedding cache (blake3-hashed) (001-core-binary-cli)
+
+## Recent Changes
+- 001-core-binary-cli: Full implementation — config, server (RwLock + graceful shutdown), CLI (thin HTTP + standalone), file watcher, embedding cache (blake3), 17 unit tests + integration test
