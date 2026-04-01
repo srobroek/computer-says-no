@@ -1,8 +1,9 @@
-// TODO(T003): remove allow(dead_code) once forward() is implemented
+// TODO: remove allow(dead_code) once mlp module is wired into the classifier
 #![allow(dead_code)]
 
 use burn::nn::{Linear, LinearConfig, Relu};
 use burn::prelude::*;
+use burn::tensor::activation;
 
 use crate::model::{Embedding, cosine_similarity};
 
@@ -16,6 +17,18 @@ pub struct MlpClassifier<B: Backend> {
     linear2: Linear<B>,
     output: Linear<B>,
     activation: Relu,
+}
+
+impl<B: Backend> MlpClassifier<B> {
+    /// Run the forward pass: linear1 -> relu -> linear2 -> relu -> output -> sigmoid.
+    ///
+    /// Accepts a batch of feature vectors with shape `(batch, 387)` and returns
+    /// sigmoid probabilities with shape `(batch, 1)`.
+    pub fn forward(&self, input: Tensor<B, 2>) -> Tensor<B, 2> {
+        let x = self.activation.forward(self.linear1.forward(input));
+        let x = self.activation.forward(self.linear2.forward(x));
+        activation::sigmoid(self.output.forward(x))
+    }
 }
 
 /// Configuration for creating an [`MlpClassifier`].
