@@ -4,6 +4,8 @@
 use burn::nn::{Linear, LinearConfig, Relu};
 use burn::prelude::*;
 
+use crate::model::{Embedding, cosine_similarity};
+
 /// MLP binary classifier for embedding-based text classification.
 ///
 /// Three-layer perceptron: input (387) -> hidden1 (256) -> hidden2 (128) -> output (1).
@@ -40,6 +42,35 @@ impl MlpConfig {
             activation: Relu::new(),
         }
     }
+}
+
+/// Compute cosine similarity features for MLP input.
+///
+/// Given a text embedding and sets of positive/negative reference embeddings,
+/// returns `[max_pos, max_neg, margin]` where:
+/// - `max_pos` is the maximum cosine similarity to any positive embedding,
+/// - `max_neg` is the maximum cosine similarity to any negative embedding,
+/// - `margin` is `max_pos - max_neg`.
+///
+/// If either embedding set is empty, its max defaults to `0.0`.
+pub fn compute_cosine_features(
+    text_emb: &Embedding,
+    pos_embeddings: &[Embedding],
+    neg_embeddings: &[Embedding],
+) -> [f32; 3] {
+    let max_pos = pos_embeddings
+        .iter()
+        .map(|e| cosine_similarity(text_emb, e))
+        .fold(f32::NEG_INFINITY, f32::max);
+    let max_pos = if max_pos == f32::NEG_INFINITY { 0.0 } else { max_pos };
+
+    let max_neg = neg_embeddings
+        .iter()
+        .map(|e| cosine_similarity(text_emb, e))
+        .fold(f32::NEG_INFINITY, f32::max);
+    let max_neg = if max_neg == f32::NEG_INFINITY { 0.0 } else { max_neg };
+
+    [max_pos, max_neg, max_pos - max_neg]
 }
 
 #[cfg(test)]
