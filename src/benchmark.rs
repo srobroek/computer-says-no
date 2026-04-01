@@ -422,6 +422,9 @@ fn compute_precision_recall(
 }
 
 /// Run the full benchmark across models and datasets.
+///
+/// If `partial_output` is provided, intermediate results are written after each
+/// model completes so partial data survives interruption.
 pub fn run_benchmark(
     models: &[ModelChoice],
     datasets: &[LabeledDataset],
@@ -429,6 +432,7 @@ pub fn run_benchmark(
     cache_dir: &Path,
     warmup: usize,
     iterations: usize,
+    partial_output: Option<&Path>,
 ) -> Result<BenchmarkRun> {
     let total_steps = models.len() * datasets.len();
     let pb = ProgressBar::new(total_steps as u64);
@@ -483,6 +487,30 @@ pub fn run_benchmark(
             cold_startup_ms,
             datasets: dataset_results,
         });
+
+        // Write partial results so data survives interruption
+        if let Some(path) = partial_output {
+            let partial = BenchmarkRun {
+                timestamp: format!(
+                    "{}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs()
+                ),
+                config: BenchmarkConfig {
+                    models: models.iter().map(|m| m.as_str().to_string()).collect(),
+                    datasets: datasets.iter().map(|d| d.name.clone()).collect(),
+                    warmup_iterations: warmup,
+                    measured_iterations: iterations,
+                },
+                results: results.clone(),
+                system_info: format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
+            };
+            if let Ok(json_str) = serde_json::to_string_pretty(&partial) {
+                let _ = std::fs::write(path, json_str);
+            }
+        }
     }
 
     pb.finish_with_message("done");
@@ -519,6 +547,7 @@ pub fn print_table(run: &BenchmarkRun) {
             Cell::new("p50 (ms)"),
             Cell::new("p95 (ms)"),
             Cell::new("p99 (ms)"),
+            Cell::new("CV"),
             Cell::new("Cold (s)"),
         ]);
 
@@ -534,6 +563,12 @@ pub fn print_table(run: &BenchmarkRun) {
                     best_model = model_result.model.clone();
                 }
 
+                let cv_display = if ds.latency_cv > 0.3 {
+                    format!("{:.0}% ⚠", ds.latency_cv * 100.0)
+                } else {
+                    format!("{:.0}%", ds.latency_cv * 100.0)
+                };
+
                 table.add_row(vec![
                     Cell::new(&model_result.model),
                     Cell::new(format!("{:.1}%", ds.accuracy * 100.0)),
@@ -541,6 +576,7 @@ pub fn print_table(run: &BenchmarkRun) {
                     Cell::new(format!("{:.1}", ds.latency_p50_ms)),
                     Cell::new(format!("{:.1}", ds.latency_p95_ms)),
                     Cell::new(format!("{:.1}", ds.latency_p99_ms)),
+                    Cell::new(cv_display),
                     Cell::new(format!("{:.1}", model_result.cold_startup_ms / 1000.0)),
                 ]);
             }
@@ -579,31 +615,43 @@ pub fn print_comparison(current: &BenchmarkRun, previous: &BenchmarkRun) {
 
             if let (Some(curr), Some(prev)) = (curr_ds, prev_ds) {
                 let acc_diff = (curr.accuracy - prev.accuracy) * 100.0;
-                let lat_diff_pct = if prev.latency_p50_ms > 0.0 {
-                    ((curr.latency_p50_ms - prev.latency_p50_ms) / prev.latency_p50_ms) * 100.0
-                } else {
-                    0.0
-                };
+
+                let lat_pct =
+                    |c: f64, p: f64| -> f64 { if p > 0.0 { ((c - p) / p) * 100.0 } else { 0.0 } };
+
+                let p50_diff = lat_pct(curr.latency_p50_ms, prev.latency_p50_ms);
+                let p95_diff = lat_pct(curr.latency_p95_ms, prev.latency_p95_ms);
+                let p99_diff = lat_pct(curr.latency_p99_ms, prev.latency_p99_ms);
+
+                let cold_diff = lat_pct(curr_model.cold_startup_ms, prev_model.cold_startup_ms);
 
                 let arrow = if acc_diff >= 0.0 { "▲" } else { "▼" };
-                let warn = if acc_diff < -1.0 || lat_diff_pct > 20.0 {
-                    " ⚠️"
-                } else {
-                    ""
+                let warn =
+                    if acc_diff < -1.0 || p50_diff > 20.0 || p95_diff > 20.0 || p99_diff > 20.0 {
+                        " ⚠️"
+                    } else {
+                        ""
+                    };
+
+                let fmt_lat = |c: f64, p: f64, diff: f64| -> String {
+                    let a = if diff <= 0.0 { "▼" } else { "▲" };
+                    format!("{:.1}→{:.1}ms ({}{:.0}%)", p, c, a, diff.abs())
                 };
 
-                let lat_arrow = if lat_diff_pct <= 0.0 { "▼" } else { "▲" };
                 println!(
-                    "  {}: accuracy {:.1}% → {:.1}% ({}{:.1}%), p50 {:.1}ms → {:.1}ms ({}{:.0}%){}",
+                    "  {}: acc {:.1}%→{:.1}% ({}{:.1}%), p50 {}, p95 {}, p99 {}, cold {:.1}→{:.1}s ({}{:.0}%){}",
                     curr_model.model,
                     prev.accuracy * 100.0,
                     curr.accuracy * 100.0,
                     arrow,
                     acc_diff.abs(),
-                    prev.latency_p50_ms,
-                    curr.latency_p50_ms,
-                    lat_arrow,
-                    lat_diff_pct.abs(),
+                    fmt_lat(curr.latency_p50_ms, prev.latency_p50_ms, p50_diff),
+                    fmt_lat(curr.latency_p95_ms, prev.latency_p95_ms, p95_diff),
+                    fmt_lat(curr.latency_p99_ms, prev.latency_p99_ms, p99_diff),
+                    prev_model.cold_startup_ms / 1000.0,
+                    curr_model.cold_startup_ms / 1000.0,
+                    if cold_diff <= 0.0 { "▼" } else { "▲" },
+                    cold_diff.abs(),
                     warn
                 );
             }

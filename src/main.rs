@@ -586,6 +586,7 @@ fn cmd_benchmark_run(
         &config.cache_dir,
         warmup,
         iterations,
+        output.as_deref(),
     )?;
 
     // Output results
