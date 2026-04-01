@@ -1,0 +1,5 @@
+[default.extend-identifiers]
+NdArray = "NdArray"
+
+[default.extend-words]
+Nd = "Nd"

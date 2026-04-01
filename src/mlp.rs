@@ -1,8 +1,11 @@
 // TODO: remove allow(dead_code) once mlp module is wired into the classifier
 #![allow(dead_code)]
 
+use std::path::{Path, PathBuf};
+
 use burn::nn::{Linear, LinearConfig, Relu};
 use burn::prelude::*;
+use burn::record::{FullPrecisionSettings, NamedMpkFileRecorder};
 use burn::tensor::activation;
 
 use crate::model::{Embedding, cosine_similarity};
@@ -75,15 +78,82 @@ pub fn compute_cosine_features(
         .iter()
         .map(|e| cosine_similarity(text_emb, e))
         .fold(f32::NEG_INFINITY, f32::max);
-    let max_pos = if max_pos == f32::NEG_INFINITY { 0.0 } else { max_pos };
+    let max_pos = if max_pos == f32::NEG_INFINITY {
+        0.0
+    } else {
+        max_pos
+    };
 
     let max_neg = neg_embeddings
         .iter()
         .map(|e| cosine_similarity(text_emb, e))
         .fold(f32::NEG_INFINITY, f32::max);
-    let max_neg = if max_neg == f32::NEG_INFINITY { 0.0 } else { max_neg };
+    let max_neg = if max_neg == f32::NEG_INFINITY {
+        0.0
+    } else {
+        max_neg
+    };
 
     [max_pos, max_neg, max_pos - max_neg]
+}
+
+/// Compute a blake3 content hash from reference set phrases.
+///
+/// Sorts all positive and negative phrases, concatenates them with newline
+/// separators (positives first, then negatives), and returns the blake3 hex digest.
+pub fn content_hash(positive_phrases: &[String], negative_phrases: &[String]) -> String {
+    let mut positives: Vec<&str> = positive_phrases.iter().map(String::as_str).collect();
+    positives.sort();
+    let mut negatives: Vec<&str> = negative_phrases.iter().map(String::as_str).collect();
+    negatives.sort();
+
+    let combined: String = positives
+        .into_iter()
+        .chain(negatives)
+        .collect::<Vec<&str>>()
+        .join("\n");
+
+    blake3::hash(combined.as_bytes()).to_hex().to_string()
+}
+
+/// Resolve the `.mpk` cache path for a given content hash.
+///
+/// Returns `{cache_dir}/mlp/{hash}.mpk`.
+pub fn cache_path(cache_dir: &Path, hash: &str) -> PathBuf {
+    cache_dir.join("mlp").join(format!("{hash}.mpk"))
+}
+
+/// Save MLP model weights to disk using the Burn `NamedMpkFileRecorder`.
+///
+/// The recorder auto-appends the `.mpk` extension, so `path` should include
+/// the full path **with** the `.mpk` suffix already stripped (the recorder
+/// adds it). To keep things simple we strip `.mpk` if present before passing
+/// to the recorder.
+pub fn save_weights<B: Backend>(model: MlpClassifier<B>, path: &Path) -> anyhow::Result<()> {
+    let recorder = NamedMpkFileRecorder::<FullPrecisionSettings>::new();
+    let base = path.with_extension("");
+    model
+        .save_file(base, &recorder)
+        .map_err(|e| anyhow::anyhow!("failed to save MLP weights: {e}"))?;
+    Ok(())
+}
+
+/// Load MLP model weights from disk using the Burn `NamedMpkFileRecorder`.
+///
+/// Initializes a fresh model from `config`, then loads the saved record into it.
+/// As with [`save_weights`], the `.mpk` extension is handled by the recorder.
+pub fn load_weights<B: Backend>(
+    config: &MlpConfig,
+    path: &Path,
+    device: &B::Device,
+) -> anyhow::Result<MlpClassifier<B>> {
+    let recorder = NamedMpkFileRecorder::<FullPrecisionSettings>::new();
+    let base = path.with_extension("");
+    let model = config.init::<B>(device);
+    let model = model
+        .load_file(base, &recorder, device)
+        .map_err(|e| anyhow::anyhow!("failed to load MLP weights: {e}"))?;
+    Ok(model)
 }
 
 #[cfg(test)]
