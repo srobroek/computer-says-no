@@ -31,6 +31,10 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 comfy-table = "7"
 indicatif = "0.17"
+burn = { version = "0.20", default-features = false, features = ["std", "ndarray", "autodiff", "train"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+burn = { version = "0.20", default-features = false, features = ["std", "ndarray", "autodiff", "train", "accelerate"] }
 
 [profile.release]
 opt-level = 3
