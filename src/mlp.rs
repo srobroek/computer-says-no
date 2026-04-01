@@ -13,6 +13,7 @@ use burn::record::{FullPrecisionSettings, NamedMpkFileRecorder};
 use burn::tensor::activation;
 
 use crate::model::{Embedding, cosine_similarity};
+use crate::reference_set::{ReferenceSet, ReferenceSetKind};
 
 /// MLP binary classifier for embedding-based text classification.
 ///
@@ -299,6 +300,122 @@ pub fn load_weights<B: Backend>(
         .load_file(base, &recorder, device)
         .map_err(|e| anyhow::anyhow!("failed to load MLP weights: {e}"))?;
     Ok(model)
+}
+
+/// Train MLP models for all eligible reference sets at startup.
+///
+/// Iterates the loaded reference sets and trains (or loads from cache) an MLP
+/// binary classifier for each binary set that has negative phrases and at least
+/// 4 total phrases. Multi-category sets and binary sets without negatives are
+/// silently skipped.
+///
+/// On convergence failure, behavior depends on `fallback`: when `true`, a
+/// warning is logged and the set is skipped; when `false`, an error is returned
+/// and the daemon should refuse to start.
+#[allow(clippy::too_many_arguments)]
+pub fn train_models_at_startup(
+    reference_sets: &[ReferenceSet],
+    cache_dir: &Path,
+    learning_rate: f64,
+    weight_decay: f64,
+    max_epochs: usize,
+    patience: usize,
+    fallback: bool,
+) -> anyhow::Result<Vec<TrainedModel>> {
+    let device = <NdArray<f32> as Backend>::Device::default();
+    let config = MlpConfig::new();
+    let mut trained: Vec<TrainedModel> = Vec::new();
+
+    for rs in reference_sets {
+        let name = &rs.metadata.name;
+
+        // Skip non-binary reference sets.
+        let bin = match &rs.kind {
+            ReferenceSetKind::Binary(b) => b,
+            ReferenceSetKind::MultiCategory(_) => continue,
+        };
+
+        // FR-007: skip if no negative embeddings.
+        if bin.negative.is_empty() {
+            continue;
+        }
+
+        // FR-008: skip if total phrases < 4.
+        let total_phrases = bin.positive_phrases.len() + bin.negative_phrases.len();
+        if total_phrases < 4 {
+            continue;
+        }
+
+        // FR-004: compute content hash and check cache.
+        let hash = content_hash(&bin.positive_phrases, &bin.negative_phrases);
+        let path = cache_path(cache_dir, &hash);
+
+        // Attempt cache load, falling back to training on miss or load failure.
+        let classifier = if path.exists() {
+            match load_weights::<NdArray<f32>>(&config, &path, &device) {
+                Ok(model) => {
+                    tracing::info!(set = %name, hash = %hash, "loaded MLP weights from cache");
+                    Some(model)
+                }
+                Err(e) => {
+                    tracing::warn!(set = %name, error = %e, "cache load failed, retraining");
+                    do_train(name, bin, &path, learning_rate, weight_decay, max_epochs, patience, fallback)?
+                }
+            }
+        } else {
+            do_train(name, bin, &path, learning_rate, weight_decay, max_epochs, patience, fallback)?
+        };
+
+        if let Some(classifier) = classifier {
+            trained.push(TrainedModel {
+                reference_set_name: name.clone(),
+                content_hash: hash,
+                classifier,
+                pos_embeddings: bin.positive.clone(),
+                neg_embeddings: bin.negative.clone(),
+            });
+        }
+    }
+
+    Ok(trained)
+}
+
+/// Train a single MLP from a binary set's embeddings and save weights to disk.
+///
+/// Returns `Ok(Some(model))` on success, `Ok(None)` when training fails with
+/// `fallback` enabled (set is skipped), or `Err` when training fails with
+/// `fallback` disabled.
+#[allow(clippy::too_many_arguments)]
+fn do_train(
+    name: &str,
+    bin: &crate::reference_set::BinaryEmbeddings,
+    path: &Path,
+    learning_rate: f64,
+    weight_decay: f64,
+    max_epochs: usize,
+    patience: usize,
+    fallback: bool,
+) -> anyhow::Result<Option<MlpClassifier<NdArray<f32>>>> {
+    match train_mlp(&bin.positive, &bin.negative, learning_rate, weight_decay, max_epochs, patience) {
+        Ok(model) => {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            save_weights(model.clone(), path)?;
+            tracing::info!(set = %name, "trained MLP and saved weights");
+            Ok(Some(model))
+        }
+        Err(e) => {
+            if fallback {
+                tracing::warn!(set = %name, error = %e, "MLP training failed, skipping (fallback enabled)");
+                Ok(None)
+            } else {
+                Err(anyhow::anyhow!(
+                    "MLP training failed for set '{name}': {e}"
+                ))
+            }
+        }
+    }
 }
 
 #[cfg(test)]
