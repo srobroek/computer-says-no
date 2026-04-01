@@ -3,6 +3,7 @@ mod classifier;
 mod config;
 mod dataset;
 mod embedding_cache;
+mod mlp;
 mod model;
 mod reference_set;
 mod server;
