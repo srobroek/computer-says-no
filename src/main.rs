@@ -463,7 +463,7 @@ fn cmd_classify_standalone(
             )
         })?;
 
-    let result = classifier::classify_text(&mut engine, text, reference_set)?;
+    let result = classifier::classify_text(&mut engine, text, reference_set, None)?;
     print_classify_result(&result, json);
     Ok(())
 }
