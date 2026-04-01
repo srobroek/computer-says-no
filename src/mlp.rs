@@ -62,9 +62,9 @@ pub struct TrainedModel {
 /// Configuration for creating an [`MlpClassifier`].
 #[derive(Config, Debug)]
 pub struct MlpConfig {
-    /// Input feature dimension (384 embedding + 3 cosine features).
+    /// Input feature dimension (embedding dim + 3 cosine features).
     #[config(default = 387)]
-    input_dim: usize,
+    pub input_dim: usize,
     /// First hidden layer size.
     #[config(default = 256)]
     hidden1: usize,
@@ -142,8 +142,6 @@ pub fn train_mlp(
     type TrainBackend = Autodiff<NdArray<f32>>;
 
     let device = <TrainBackend as Backend>::Device::default();
-    let config = MlpConfig::new();
-    let mut model: MlpClassifier<TrainBackend> = config.init(&device);
 
     // --- Build training data ---
     let total_samples = pos_embeddings.len() + neg_embeddings.len();
@@ -157,6 +155,10 @@ pub fn train_mlp(
         .map(|e| e.len())
         .unwrap_or(384);
     let feature_dim = embed_dim + 3; // embedding + [max_pos, max_neg, margin]
+
+    // Configure MLP with actual feature dimension (varies by embedding model).
+    let config = MlpConfig::new().with_input_dim(feature_dim);
+    let mut model: MlpClassifier<TrainBackend> = config.init(&device);
 
     let mut features: Vec<f32> = Vec::with_capacity(total_samples * feature_dim);
     let mut labels: Vec<i64> = Vec::with_capacity(total_samples);
@@ -327,7 +329,6 @@ pub fn train_models_at_startup(
     tracing::info!("training MLP models at startup");
 
     let device = <NdArray<f32> as Backend>::Device::default();
-    let config = MlpConfig::new();
     let mut trained: Vec<TrainedModel> = Vec::new();
 
     for rs in reference_sets {
@@ -354,6 +355,16 @@ pub fn train_models_at_startup(
             tracing::info!(set = %name, reason = "fewer than 4 phrases", "skipping MLP training");
             continue;
         }
+
+        // Derive input dimension from actual embedding size.
+        let embed_dim = bin
+            .positive
+            .first()
+            .or(bin.negative.first())
+            .map(|e| e.len())
+            .unwrap_or(384);
+        let feature_dim = embed_dim + 3;
+        let config = MlpConfig::new().with_input_dim(feature_dim);
 
         // FR-004: compute content hash and check cache.
         let hash = content_hash(&bin.positive_phrases, &bin.negative_phrases);

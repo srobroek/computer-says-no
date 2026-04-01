@@ -463,7 +463,24 @@ fn cmd_classify_standalone(
             )
         })?;
 
-    let result = classifier::classify_text(&mut engine, text, reference_set, None)?;
+    // Train MLP for the reference set (or load from cache) so standalone
+    // classify uses the combined pipeline, same as the daemon.
+    eprintln!("Loading MLP models (training or loading from cache)...");
+    let trained_models = mlp::train_models_at_startup(
+        &sets,
+        &config.cache_dir,
+        config.mlp_learning_rate,
+        config.mlp_weight_decay,
+        config.mlp_max_epochs,
+        config.mlp_patience,
+        config.mlp_fallback,
+    )?;
+    eprintln!("MLP ready ({} model(s) loaded)", trained_models.len());
+    let trained_model = trained_models
+        .iter()
+        .find(|m| m.reference_set_name == set_name);
+
+    let result = classifier::classify_text(&mut engine, text, reference_set, trained_model)?;
     print_classify_result(&result, json);
     Ok(())
 }
