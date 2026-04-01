@@ -327,4 +327,113 @@ mod tests {
         assert_eq!(model.linear2.weight.dims(), [256, 128]);
         assert_eq!(model.output.weight.dims(), [128, 1]);
     }
+
+    #[test]
+    fn forward_output_shape_and_range() {
+        let config = MlpConfig::new();
+        let device = <TestBackend as Backend>::Device::default();
+        let model = config.init::<TestBackend>(&device);
+
+        let batch = 4;
+        let input = Tensor::<TestBackend, 2>::random(
+            [batch, 387],
+            burn::tensor::Distribution::Uniform(-1.0, 1.0),
+            &device,
+        );
+
+        let output = model.forward(input);
+
+        // Output shape must be (batch, 1).
+        assert_eq!(output.dims(), [batch, 1]);
+
+        // All values must be in (0, 1) — sigmoid output.
+        let data: Vec<f32> = output.into_data().to_vec().unwrap();
+        for (i, &val) in data.iter().enumerate() {
+            assert!(
+                val > 0.0 && val < 1.0,
+                "output[{i}] = {val} is not in (0, 1)"
+            );
+        }
+    }
+
+    #[test]
+    fn cosine_features_known_embeddings() {
+        // Use 3-dimensional embeddings for simplicity.
+        let text: Embedding = vec![1.0, 0.0, 0.0];
+        let pos: Vec<Embedding> = vec![
+            vec![1.0, 0.0, 0.0], // identical to text -> cosine = 1.0
+            vec![0.0, 1.0, 0.0], // orthogonal -> cosine = 0.0
+        ];
+        let neg: Vec<Embedding> = vec![
+            vec![-1.0, 0.0, 0.0], // opposite -> cosine = -1.0
+            vec![0.0, 0.0, 1.0],  // orthogonal -> cosine = 0.0
+        ];
+
+        let [max_pos, max_neg, margin] = compute_cosine_features(&text, &pos, &neg);
+
+        assert!(
+            (max_pos - 1.0).abs() < 1e-6,
+            "max_pos = {max_pos}, expected 1.0"
+        );
+        assert!(
+            (max_neg - 0.0).abs() < 1e-6,
+            "max_neg = {max_neg}, expected 0.0"
+        );
+        assert!(
+            (margin - 1.0).abs() < 1e-6,
+            "margin = {margin}, expected 1.0"
+        );
+    }
+
+    #[test]
+    fn cosine_features_empty_sets() {
+        let text: Embedding = vec![1.0, 0.0, 0.0];
+
+        // Both empty.
+        let [max_pos, max_neg, margin] = compute_cosine_features(&text, &[], &[]);
+        assert!(
+            (max_pos - 0.0).abs() < 1e-6,
+            "max_pos = {max_pos}, expected 0.0"
+        );
+        assert!(
+            (max_neg - 0.0).abs() < 1e-6,
+            "max_neg = {max_neg}, expected 0.0"
+        );
+        assert!(
+            (margin - 0.0).abs() < 1e-6,
+            "margin = {margin}, expected 0.0"
+        );
+
+        // Only positives empty.
+        let neg: Vec<Embedding> = vec![vec![1.0, 0.0, 0.0]];
+        let [max_pos, max_neg, margin] = compute_cosine_features(&text, &[], &neg);
+        assert!(
+            (max_pos - 0.0).abs() < 1e-6,
+            "max_pos = {max_pos}, expected 0.0"
+        );
+        assert!(
+            (max_neg - 1.0).abs() < 1e-6,
+            "max_neg = {max_neg}, expected 1.0"
+        );
+        assert!(
+            (margin - -1.0).abs() < 1e-6,
+            "margin = {margin}, expected -1.0"
+        );
+
+        // Only negatives empty.
+        let pos: Vec<Embedding> = vec![vec![1.0, 0.0, 0.0]];
+        let [max_pos, max_neg, margin] = compute_cosine_features(&text, &pos, &[]);
+        assert!(
+            (max_pos - 1.0).abs() < 1e-6,
+            "max_pos = {max_pos}, expected 1.0"
+        );
+        assert!(
+            (max_neg - 0.0).abs() < 1e-6,
+            "max_neg = {max_neg}, expected 0.0"
+        );
+        assert!(
+            (margin - 1.0).abs() < 1e-6,
+            "margin = {margin}, expected 1.0"
+        );
+    }
 }
