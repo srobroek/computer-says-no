@@ -126,3 +126,77 @@ fn daemon_rest_api_contract() {
     child.kill().ok();
     child.wait().ok();
 }
+
+/// Integration test that verifies `/classify` returns a result when MLP is loaded.
+///
+/// Requires model download and MLP training at startup, so it is ignored in CI.
+/// Run manually: `cargo test --test integration_test -- --ignored`
+#[test]
+#[ignore]
+fn classify_returns_mlp_result() {
+    let port = available_port();
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let sets_dir = format!("{}/reference-sets", manifest_dir);
+    let bin = format!("{}/target/debug/csn", manifest_dir);
+
+    let mut child = std::process::Command::new(&bin)
+        .args([
+            "serve",
+            "--port",
+            &port.to_string(),
+            "--sets-dir",
+            &sets_dir,
+            "--model",
+            "bge-small-en-v1.5-Q",
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("failed to start daemon — run `cargo build` first");
+
+    // MLP training happens at startup, allow extra time
+    let client = wait_for_server(port, Duration::from_secs(120));
+    let base = format!("http://127.0.0.1:{}", port);
+
+    let resp = client
+        .post(format!("{base}/classify"))
+        .json(&serde_json::json!({
+            "text": "I don't think that's right",
+            "reference_set": "corrections"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let result: serde_json::Value = resp.json().unwrap();
+
+    // "match" field must be a boolean (serde renames is_match -> match)
+    assert!(
+        result.get("match").is_some(),
+        "response must contain 'match' field"
+    );
+    assert!(
+        result["match"].is_boolean(),
+        "'match' must be a boolean, got: {}",
+        result["match"]
+    );
+
+    // confidence must be between 0 and 1
+    let confidence = result["confidence"]
+        .as_f64()
+        .expect("response must contain numeric 'confidence' field");
+    assert!(
+        (0.0..=1.0).contains(&confidence),
+        "confidence must be in [0, 1], got: {confidence}"
+    );
+
+    // scores must exist
+    assert!(
+        result.get("scores").is_some(),
+        "response must contain 'scores' field"
+    );
+
+    // Clean up
+    child.kill().ok();
+    child.wait().ok();
+}
