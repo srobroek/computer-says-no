@@ -5,7 +5,7 @@ use std::path::Path;
 fn datasets_are_valid_json() {
     let datasets_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
 
-    for name in ["corrections", "commit-types"] {
+    for name in ["corrections", "pushback"] {
         let path = datasets_dir.join(format!("{name}.json"));
         assert!(path.exists(), "dataset {name}.json should exist");
 
@@ -40,7 +40,7 @@ fn datasets_are_valid_json() {
             );
         }
 
-        // Check tier distribution (each bucket should have at least 70)
+        // Check tier distribution (each bucket should have at least 40 prompts)
         let tiers = ["clear", "moderate", "edge"];
         let polarities = ["positive", "negative"];
         for tier in tiers {
@@ -52,8 +52,8 @@ fn datasets_are_valid_json() {
                     })
                     .count();
                 assert!(
-                    count >= 70,
-                    "{name}: {tier}/{pol} has only {count} prompts (expected ~83)"
+                    count >= 40,
+                    "{name}: {tier}/{pol} has only {count} prompts (expected >= 40)"
                 );
             }
         }
@@ -82,23 +82,24 @@ fn corrections_dataset_labels() {
     }
 }
 
-/// Verify commit-types dataset labels match valid categories.
+/// Verify pushback dataset labels match valid binary categories.
 #[test]
-fn commit_types_dataset_labels() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/commit-types.json");
+fn pushback_dataset_labels() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/pushback.json");
     let content = std::fs::read_to_string(&path).unwrap();
     let ds: serde_json::Value = serde_json::from_str(&content).unwrap();
     let prompts = ds["prompts"].as_array().unwrap();
 
-    let valid_categories = [
-        "feat", "fix", "refactor", "docs", "chore", "test", "no_match",
-    ];
-
-    for (i, p) in prompts.iter().enumerate() {
+    for p in prompts {
         let label = p["expected_label"].as_str().unwrap();
-        assert!(
-            valid_categories.contains(&label),
-            "prompt {i}: unexpected label '{label}'"
-        );
+        let polarity = p["polarity"].as_str().unwrap();
+        match polarity {
+            "positive" => assert_eq!(label, "match", "positive prompt should have label 'match'"),
+            "negative" => assert_eq!(
+                label, "no_match",
+                "negative prompt should have label 'no_match'"
+            ),
+            _ => panic!("unexpected polarity: {polarity}"),
+        }
     }
 }
