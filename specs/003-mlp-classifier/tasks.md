@@ -16,8 +16,8 @@
 **Purpose**: Add Burn dependency and create the MLP module skeleton
 
 - [x] T001 Add `burn` and `burn-ndarray` dependencies to Cargo.toml, feature-gate ndarray BLAS/Accelerate backend for macOS
-- [x] T002 Create `src/mlp.rs` module file with `MlpClassifier` struct using `#[derive(Module, Debug)]` (Linear layers: 387→256, 256→128, 128→1, Relu activation) and `MlpConfig` using `#[derive(Config, Debug)]` with fields: input_dim (387), hidden1 (256), hidden2 (128). Implement `MlpConfig::init()` to create the model. Add `mod mlp;` to `src/main.rs`
-- [x] T003 Add `[mlp]` config section to `AppConfig` in `src/config.rs`: `mlp_fallback: bool` (default false), `mlp_learning_rate: f64` (0.001), `mlp_weight_decay: f64` (0.001), `mlp_max_epochs: usize` (500), `mlp_patience: usize` (10). Parse from TOML and `CSN_MLP_FALLBACK` env var
+- [ ] T002 Create `src/mlp.rs` module file with `MlpClassifier` struct using `#[derive(Module, Debug)]` (Linear layers: 387→256, 256→128, 128→1, Relu activation) and `MlpConfig` using `#[derive(Config, Debug)]` with fields: input_dim (387), hidden1 (256), hidden2 (128). Implement `MlpConfig::init()` to create the model. Add `mod mlp;` to `src/main.rs`
+- [ ] T003 Add `[mlp]` config section to `AppConfig` in `src/config.rs`: `mlp_fallback: bool` (default false), `mlp_learning_rate: f64` (0.001), `mlp_weight_decay: f64` (0.001), `mlp_max_epochs: usize` (500), `mlp_patience: usize` (10). Parse from TOML and `CSN_MLP_FALLBACK` env var
 
 ---
 
