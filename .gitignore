@@ -20,6 +20,14 @@
 # Claude Code
 .claude/worktrees/
 .claude/handover/
+.claude/metrics/
+.claude/settings.json
+
+# Vectimus
+.vectimus/
+
+# Serena
+.serena/
 
 # OS
 .DS_Store
