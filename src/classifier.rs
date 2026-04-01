@@ -174,8 +174,8 @@ pub fn classify_with_mlp(text_embedding: &Embedding, trained_model: &TrainedMode
 
     // Create Burn tensor and run forward pass.
     let device = <NdArray<f32> as Backend>::Device::default();
-    let data = TensorData::from(input_vec.as_slice());
-    let input = Tensor::<NdArray<f32>, 2>::from_data(data, &device).reshape([1, input_dim as i64]);
+    let data = TensorData::new(input_vec, [1, input_dim]);
+    let input = Tensor::<NdArray<f32>, 2>::from_data(data, &device);
 
     let output = trained_model.classifier.forward(input);
     let confidence: f32 = output.into_scalar().elem();
@@ -215,5 +215,88 @@ fn best_match(query: &Embedding, embeddings: &[Embedding], phrases: &[String]) -
         (0.0, String::new())
     } else {
         (best_score, best_phrase)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mlp::{MlpConfig, TrainedModel};
+    use burn::backend::NdArray;
+
+    type TestBackend = NdArray;
+
+    /// Helper: create a 384-dim embedding with a given base value and slight variation.
+    fn synthetic_embedding(base: f32) -> Embedding {
+        (0..384).map(|i| base + (i as f32) * 0.001).collect()
+    }
+
+    /// Helper: build a TrainedModel with synthetic embeddings for testing.
+    fn make_trained_model() -> TrainedModel {
+        let config = MlpConfig::new();
+        let device = <TestBackend as Backend>::Device::default();
+        let classifier = config.init::<TestBackend>(&device);
+
+        let pos_emb = vec![synthetic_embedding(0.5), synthetic_embedding(0.7)];
+        let neg_emb = vec![synthetic_embedding(-0.5), synthetic_embedding(-0.3)];
+        let pos_phrases = vec!["positive one".to_string(), "positive two".to_string()];
+
+        TrainedModel {
+            reference_set_name: "test-set".to_string(),
+            content_hash: "testhash".to_string(),
+            classifier,
+            pos_embeddings: pos_emb,
+            neg_embeddings: neg_emb,
+            pos_phrases,
+        }
+    }
+
+    #[test]
+    fn classify_with_mlp_returns_valid_binary_result() {
+        let model = make_trained_model();
+        let text_embedding = synthetic_embedding(0.6);
+
+        let result = classify_with_mlp(&text_embedding, &model);
+
+        // Confidence must be in (0, 1) — sigmoid output.
+        assert!(
+            result.confidence > 0.0 && result.confidence < 1.0,
+            "confidence = {} is not in (0, 1)",
+            result.confidence
+        );
+
+        // is_match must be consistent with confidence threshold.
+        assert_eq!(
+            result.is_match,
+            result.confidence > 0.5,
+            "is_match should equal confidence > 0.5"
+        );
+
+        // top_phrase must be one of the positive phrases.
+        assert!(
+            result.top_phrase == "positive one" || result.top_phrase == "positive two",
+            "top_phrase = '{}' is not a known positive phrase",
+            result.top_phrase
+        );
+    }
+
+    #[test]
+    fn classify_with_mlp_scores_are_valid_cosine_values() {
+        let model = make_trained_model();
+        let text_embedding = synthetic_embedding(0.6);
+
+        let result = classify_with_mlp(&text_embedding, &model);
+
+        // Cosine similarity values must be in [-1, 1].
+        assert!(
+            result.scores.positive >= -1.0 && result.scores.positive <= 1.0,
+            "scores.positive = {} is not in [-1, 1]",
+            result.scores.positive
+        );
+        assert!(
+            result.scores.negative >= -1.0 && result.scores.negative <= 1.0,
+            "scores.negative = {} is not in [-1, 1]",
+            result.scores.negative
+        );
     }
 }
