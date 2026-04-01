@@ -67,6 +67,8 @@ just clean        # cargo clean
 - Filesystem — TOML config, TOML reference sets, binary embedding cache (blake3-hashed) (001-core-binary-cli)
 - comfy-table 7, indicatif 0.17, serde_json (002-model-benchmark-harness)
 - JSON files in `datasets/` directory, JSON output for results (002-model-benchmark-harness)
+- Rust 2024 edition (1.92) + burn 0.20+ (burn-ndarray), existing: fastembed 5.13, axum 0.8, clap 4, notify 7, blake3 (003-mlp-classifier)
+- MLP weight cache in `~/.cache/computer-says-no/mlp/{hash}.mpk` (Burn NamedMpkFileRecorder) (003-mlp-classifier)
 
 ## Recent Changes
 - 002-model-benchmark-harness: Benchmark harness — 12-model comparison, 6 datasets (500 prompts each), strategy comparison, table/JSON output, regression detection
