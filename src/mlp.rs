@@ -3,6 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
+use burn::backend::NdArray;
 use burn::nn::{Linear, LinearConfig, Relu};
 use burn::prelude::*;
 use burn::record::{FullPrecisionSettings, NamedMpkFileRecorder};
@@ -32,6 +33,24 @@ impl<B: Backend> MlpClassifier<B> {
         let x = self.activation.forward(self.linear2.forward(x));
         activation::sigmoid(self.output.forward(x))
     }
+}
+
+/// A trained MLP model ready for inference.
+///
+/// Holds the classifier (pinned to the `NdArray<f32>` backend), the originating
+/// reference set name and content hash (used as a cache key), and cloned
+/// positive/negative embeddings needed to compute cosine features at inference time.
+pub struct TrainedModel {
+    /// Name of the binary reference set this model was trained on.
+    pub reference_set_name: String,
+    /// blake3 hash of the reference set phrases (cache key for weight files).
+    pub content_hash: String,
+    /// The trained MLP classifier using the NdArray inference backend.
+    pub classifier: MlpClassifier<NdArray<f32>>,
+    /// Cached positive phrase embeddings for cosine feature computation.
+    pub pos_embeddings: Vec<Embedding>,
+    /// Cached negative phrase embeddings for cosine feature computation.
+    pub neg_embeddings: Vec<Embedding>,
 }
 
 /// Configuration for creating an [`MlpClassifier`].
