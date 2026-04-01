@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::classifier;
 use crate::dataset::{LabeledDataset, LabeledPrompt, Polarity, Tier};
 use crate::model::{EmbeddingEngine, ModelChoice};
-use crate::reference_set::load_all_reference_sets;
+use crate::reference_set::{ReferenceSetKind, load_all_reference_sets};
 
 /// Configuration for a benchmark run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -236,7 +236,7 @@ pub fn compare_strategies(
         })
         .collect();
 
-    strategies
+    let mut strategy_results: Vec<(String, f64)> = strategies
         .iter()
         .map(|&strategy| {
             let correct = results
@@ -252,7 +252,56 @@ pub fn compare_strategies(
             };
             (strategy.name(), accuracy)
         })
-        .collect()
+        .collect();
+
+    // Attempt to add "combined" (MLP) strategy for binary sets with negatives.
+    if let ReferenceSetKind::Binary(bin) = &ref_set.kind
+        && !bin.negative.is_empty()
+        && let Ok(mlp_classifier) = crate::mlp::train_mlp(
+            &bin.positive,
+            &bin.negative,
+            0.001, // learning_rate
+            0.001, // weight_decay
+            500,   // max_epochs
+            10,    // patience
+        )
+    {
+        let trained_model = crate::mlp::TrainedModel {
+            reference_set_name: ref_set.metadata.name.clone(),
+            content_hash: ref_set.content_hash.clone(),
+            classifier: mlp_classifier,
+            pos_embeddings: bin.positive.clone(),
+            neg_embeddings: bin.negative.clone(),
+            pos_phrases: bin.positive_phrases.clone(),
+        };
+
+        let correct = results
+            .iter()
+            .filter(|(prompt, _)| {
+                let emb = engine.embed_one(&prompt.text).ok();
+                if let Some(emb) = emb {
+                    let mlp_result = classifier::classify_with_mlp(&emb, &trained_model);
+                    match prompt.polarity {
+                        Polarity::Positive => {
+                            mlp_result.is_match == (prompt.expected_label != "no_match")
+                        }
+                        Polarity::Negative => !mlp_result.is_match,
+                    }
+                } else {
+                    false
+                }
+            })
+            .count();
+
+        let accuracy = if results.is_empty() {
+            0.0
+        } else {
+            correct as f64 / results.len() as f64
+        };
+        strategy_results.push(("combined".to_string(), accuracy));
+    }
+
+    strategy_results
 }
 
 /// Check if a classification result is correct for a labeled prompt.
