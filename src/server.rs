@@ -19,12 +19,16 @@ use crate::reference_set::{ReferenceSet, load_all_reference_sets};
 pub struct AppState {
     pub engine: Mutex<EmbeddingEngine>,
     pub sets: RwLock<Vec<ReferenceSet>>,
-    #[allow(dead_code)] // used by MLP classify handler (not yet wired)
     pub trained_models: Mutex<Vec<TrainedModel>>,
     pub start_time: Instant,
     pub model: ModelChoice,
     pub sets_dir: PathBuf,
     pub cache_dir: PathBuf,
+    pub mlp_learning_rate: f64,
+    pub mlp_weight_decay: f64,
+    pub mlp_max_epochs: usize,
+    pub mlp_patience: usize,
+    pub mlp_fallback: bool,
 }
 
 #[derive(Serialize)]
@@ -137,6 +141,11 @@ pub async fn serve(config: &AppConfig) -> anyhow::Result<()> {
         model: config.model,
         sets_dir: sets_dir.clone(),
         cache_dir: config.cache_dir.clone(),
+        mlp_learning_rate: config.mlp_learning_rate,
+        mlp_weight_decay: config.mlp_weight_decay,
+        mlp_max_epochs: config.mlp_max_epochs,
+        mlp_patience: config.mlp_patience,
+        mlp_fallback: config.mlp_fallback,
     });
 
     // Start file watcher for hot-reload
