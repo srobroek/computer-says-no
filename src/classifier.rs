@@ -146,10 +146,7 @@ pub fn classify_text(
 /// `confidence` is the MLP sigmoid output, `scores` are the raw cosine maxima,
 /// and `top_phrase` is the phrase with the highest positive cosine similarity.
 #[allow(dead_code)]
-pub fn classify_with_mlp(
-    text_embedding: &Embedding,
-    trained_model: &TrainedModel,
-) -> BinaryResult {
+pub fn classify_with_mlp(text_embedding: &Embedding, trained_model: &TrainedModel) -> BinaryResult {
     // Compute cosine features: [max_pos, max_neg, margin].
     let cosine = compute_cosine_features(
         text_embedding,

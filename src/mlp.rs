@@ -361,11 +361,29 @@ pub fn train_models_at_startup(
                 }
                 Err(e) => {
                     tracing::warn!(set = %name, error = %e, "cache load failed, retraining");
-                    do_train(name, bin, &path, learning_rate, weight_decay, max_epochs, patience, fallback)?
+                    do_train(
+                        name,
+                        bin,
+                        &path,
+                        learning_rate,
+                        weight_decay,
+                        max_epochs,
+                        patience,
+                        fallback,
+                    )?
                 }
             }
         } else {
-            do_train(name, bin, &path, learning_rate, weight_decay, max_epochs, patience, fallback)?
+            do_train(
+                name,
+                bin,
+                &path,
+                learning_rate,
+                weight_decay,
+                max_epochs,
+                patience,
+                fallback,
+            )?
         };
 
         if let Some(classifier) = classifier {
@@ -375,6 +393,7 @@ pub fn train_models_at_startup(
                 classifier,
                 pos_embeddings: bin.positive.clone(),
                 neg_embeddings: bin.negative.clone(),
+                pos_phrases: bin.positive_phrases.clone(),
             });
         }
     }
@@ -398,7 +417,14 @@ fn do_train(
     patience: usize,
     fallback: bool,
 ) -> anyhow::Result<Option<MlpClassifier<NdArray<f32>>>> {
-    match train_mlp(&bin.positive, &bin.negative, learning_rate, weight_decay, max_epochs, patience) {
+    match train_mlp(
+        &bin.positive,
+        &bin.negative,
+        learning_rate,
+        weight_decay,
+        max_epochs,
+        patience,
+    ) {
         Ok(model) => {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
@@ -412,9 +438,7 @@ fn do_train(
                 tracing::warn!(set = %name, error = %e, "MLP training failed, skipping (fallback enabled)");
                 Ok(None)
             } else {
-                Err(anyhow::anyhow!(
-                    "MLP training failed for set '{name}': {e}"
-                ))
+                Err(anyhow::anyhow!("MLP training failed for set '{name}': {e}"))
             }
         }
     }
