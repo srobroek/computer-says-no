@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher, event::ModifyKind};
 use tokio::sync::mpsc;
 
+use crate::mlp::train_models_at_startup;
 use crate::reference_set::load_all_reference_sets;
 use crate::server::AppState;
 
@@ -79,9 +80,32 @@ fn reload_sets(state: &AppState) {
     match load_all_reference_sets(&state.sets_dir, &mut engine, Some(&state.cache_dir)) {
         Ok(new_sets) => {
             let count = new_sets.len();
-            let mut sets = state.sets.write().unwrap();
-            *sets = new_sets;
-            tracing::info!(count, "reference sets reloaded");
+
+            // Retrain MLP models before swapping sets so reads aren't blocked during training
+            match train_models_at_startup(
+                &new_sets,
+                &state.cache_dir,
+                state.mlp_learning_rate,
+                state.mlp_weight_decay,
+                state.mlp_max_epochs,
+                state.mlp_patience,
+                state.mlp_fallback,
+            ) {
+                Ok(new_models) => {
+                    let model_count = new_models.len();
+                    let mut sets = state.sets.write().unwrap();
+                    *sets = new_sets;
+                    let mut models = state.trained_models.lock().unwrap();
+                    *models = new_models;
+                    tracing::info!(count, model_count, "reference sets reloaded and MLP models retrained");
+                }
+                Err(e) => {
+                    // MLP training failed — still swap the sets so embedding-only classify works
+                    let mut sets = state.sets.write().unwrap();
+                    *sets = new_sets;
+                    tracing::warn!(error = %e, count, "reference sets reloaded but MLP retrain failed, keeping previous models");
+                }
+            }
         }
         Err(e) => {
             tracing::error!(error = %e, "failed to reload reference sets, keeping previous");
