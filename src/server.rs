@@ -12,12 +12,15 @@ use std::time::Instant;
 
 use crate::classifier;
 use crate::config::AppConfig;
+use crate::mlp::{TrainedModel, train_models_at_startup};
 use crate::model::{EmbeddingEngine, ModelChoice, cosine_similarity};
 use crate::reference_set::{ReferenceSet, load_all_reference_sets};
 
 pub struct AppState {
     pub engine: Mutex<EmbeddingEngine>,
     pub sets: RwLock<Vec<ReferenceSet>>,
+    #[allow(dead_code)] // used by MLP classify handler (not yet wired)
+    pub trained_models: Mutex<Vec<TrainedModel>>,
     pub start_time: Instant,
     pub model: ModelChoice,
     pub sets_dir: PathBuf,
@@ -114,9 +117,22 @@ pub async fn serve(config: &AppConfig) -> anyhow::Result<()> {
     let sets = load_all_reference_sets(&sets_dir, &mut engine, Some(&config.cache_dir))?;
     tracing::info!(count = sets.len(), "reference sets loaded");
 
+    tracing::info!("training MLP classifiers");
+    let trained_models = train_models_at_startup(
+        &sets,
+        &config.cache_dir,
+        config.mlp_learning_rate,
+        config.mlp_weight_decay,
+        config.mlp_max_epochs,
+        config.mlp_patience,
+        config.mlp_fallback,
+    )?;
+    tracing::info!(count = trained_models.len(), "MLP classifiers ready");
+
     let state = Arc::new(AppState {
         engine: Mutex::new(engine),
         sets: RwLock::new(sets),
+        trained_models: Mutex::new(trained_models),
         start_time: start,
         model: config.model,
         sets_dir: sets_dir.clone(),
