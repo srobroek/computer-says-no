@@ -1,5 +1,8 @@
+use burn::backend::NdArray;
+use burn::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::mlp::{TrainedModel, compute_cosine_features};
 use crate::model::{Embedding, EmbeddingEngine, cosine_similarity};
 use crate::reference_set::{ReferenceSet, ReferenceSetKind};
 
@@ -133,6 +136,58 @@ pub fn classify_text(
 ) -> anyhow::Result<ClassifyResult> {
     let embedding = engine.embed_one(text)?;
     Ok(classify(&embedding, reference_set))
+}
+
+/// Classify a text embedding using a trained MLP model.
+///
+/// Computes cosine features against the model's cached positive/negative
+/// embeddings, concatenates them with the raw text embedding to form a 387-dim
+/// input vector, and runs the MLP forward pass. Returns a `BinaryResult` where
+/// `confidence` is the MLP sigmoid output, `scores` are the raw cosine maxima,
+/// and `top_phrase` is the phrase with the highest positive cosine similarity.
+#[allow(dead_code)]
+pub fn classify_with_mlp(
+    text_embedding: &Embedding,
+    trained_model: &TrainedModel,
+) -> BinaryResult {
+    // Compute cosine features: [max_pos, max_neg, margin].
+    let cosine = compute_cosine_features(
+        text_embedding,
+        &trained_model.pos_embeddings,
+        &trained_model.neg_embeddings,
+    );
+
+    // Build 387-dim input: embedding (384) + cosine features (3).
+    let mut input_vec: Vec<f32> = Vec::with_capacity(text_embedding.len() + 3);
+    input_vec.extend_from_slice(text_embedding);
+    input_vec.extend_from_slice(&cosine);
+
+    let input_dim = input_vec.len();
+
+    // Create Burn tensor and run forward pass.
+    let device = <NdArray<f32> as Backend>::Device::default();
+    let data = TensorData::from(input_vec.as_slice());
+    let input = Tensor::<NdArray<f32>, 2>::from_data(data, &device).reshape([1, input_dim as i64]);
+
+    let output = trained_model.classifier.forward(input);
+    let confidence: f32 = output.into_scalar().elem();
+
+    // Get top phrase from positive embeddings using best_match.
+    let (_pos_score, top_phrase) = best_match(
+        text_embedding,
+        &trained_model.pos_embeddings,
+        &trained_model.pos_phrases,
+    );
+
+    BinaryResult {
+        is_match: confidence > 0.5,
+        confidence,
+        top_phrase,
+        scores: BinaryScores {
+            positive: cosine[0], // max_pos
+            negative: cosine[1], // max_neg
+        },
+    }
 }
 
 /// Find the best matching phrase and its similarity score.

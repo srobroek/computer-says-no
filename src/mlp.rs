@@ -54,6 +54,8 @@ pub struct TrainedModel {
     pub pos_embeddings: Vec<Embedding>,
     /// Cached negative phrase embeddings for cosine feature computation.
     pub neg_embeddings: Vec<Embedding>,
+    /// Positive phrase strings for top_phrase reporting during classification.
+    pub pos_phrases: Vec<String>,
 }
 
 /// Configuration for creating an [`MlpClassifier`].
