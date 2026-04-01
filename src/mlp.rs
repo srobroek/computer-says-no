@@ -324,6 +324,8 @@ pub fn train_models_at_startup(
     patience: usize,
     fallback: bool,
 ) -> anyhow::Result<Vec<TrainedModel>> {
+    tracing::info!("training MLP models at startup");
+
     let device = <NdArray<f32> as Backend>::Device::default();
     let config = MlpConfig::new();
     let mut trained: Vec<TrainedModel> = Vec::new();
@@ -334,17 +336,22 @@ pub fn train_models_at_startup(
         // Skip non-binary reference sets.
         let bin = match &rs.kind {
             ReferenceSetKind::Binary(b) => b,
-            ReferenceSetKind::MultiCategory(_) => continue,
+            ReferenceSetKind::MultiCategory(_) => {
+                tracing::info!(set = %name, reason = "multi-category set", "skipping MLP training");
+                continue;
+            }
         };
 
         // FR-007: skip if no negative embeddings.
         if bin.negative.is_empty() {
+            tracing::info!(set = %name, reason = "no negative phrases", "skipping MLP training");
             continue;
         }
 
         // FR-008: skip if total phrases < 4.
         let total_phrases = bin.positive_phrases.len() + bin.negative_phrases.len();
         if total_phrases < 4 {
+            tracing::info!(set = %name, reason = "fewer than 4 phrases", "skipping MLP training");
             continue;
         }
 
@@ -398,6 +405,8 @@ pub fn train_models_at_startup(
         }
     }
 
+    tracing::info!(count = trained.len(), "MLP startup training complete");
+
     Ok(trained)
 }
 
@@ -417,6 +426,8 @@ fn do_train(
     patience: usize,
     fallback: bool,
 ) -> anyhow::Result<Option<MlpClassifier<NdArray<f32>>>> {
+    tracing::info!(set = %name, "training MLP model");
+    let start = std::time::Instant::now();
     match train_mlp(
         &bin.positive,
         &bin.negative,
@@ -426,16 +437,17 @@ fn do_train(
         patience,
     ) {
         Ok(model) => {
+            let duration_ms = start.elapsed().as_millis() as u64;
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
             save_weights(model.clone(), path)?;
-            tracing::info!(set = %name, "trained MLP and saved weights");
+            tracing::info!(set = %name, duration_ms = duration_ms, "MLP training complete");
             Ok(Some(model))
         }
         Err(e) => {
             if fallback {
-                tracing::warn!(set = %name, error = %e, "MLP training failed, skipping (fallback enabled)");
+                tracing::warn!(set = %name, error = %e, "MLP training failed, using cosine fallback");
                 Ok(None)
             } else {
                 Err(anyhow::anyhow!("MLP training failed for set '{name}': {e}"))
