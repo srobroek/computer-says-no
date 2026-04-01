@@ -26,6 +26,7 @@ pub struct AppConfig {
     #[allow(dead_code)]
     pub config_dir: PathBuf,
     pub cache_dir: PathBuf,
+    pub datasets_dir: PathBuf,
 }
 
 /// CLI overrides — fields provided via command-line flags.
@@ -36,6 +37,7 @@ pub struct CliOverrides {
     pub log_level: Option<String>,
     pub sets_dir: Option<PathBuf>,
     pub cache_dir: Option<PathBuf>,
+    pub datasets_dir: Option<PathBuf>,
 }
 
 impl AppConfig {
@@ -77,6 +79,11 @@ impl AppConfig {
             .or(file_config.cache_dir)
             .unwrap_or_else(Self::default_cache_dir);
 
+        let datasets_dir = overrides
+            .datasets_dir
+            .or_else(|| std::env::var("CSN_DATASETS_DIR").ok().map(PathBuf::from))
+            .unwrap_or_else(|| PathBuf::from("datasets"));
+
         Ok(Self {
             port,
             model,
@@ -84,6 +91,7 @@ impl AppConfig {
             sets_dir,
             config_dir,
             cache_dir,
+            datasets_dir,
         })
     }
 
@@ -166,6 +174,7 @@ mod tests {
             log_level: Some("info".to_string()),
             sets_dir: Some(PathBuf::from("/tmp/sets")),
             cache_dir: Some(PathBuf::from("/tmp/cache")),
+            datasets_dir: Some(PathBuf::from("/tmp/datasets")),
         })
         .unwrap();
         assert_eq!(config.port, 2222);
