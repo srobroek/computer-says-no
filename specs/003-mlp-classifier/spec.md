@@ -2,7 +2,10 @@
 
 **Feature Branch**: `003-mlp-classifier`
 **Created**: 2026-04-01
-**Status**: Draft
+**Status**: In Progress
+**Project**: Computer Says No
+**Project Number**: 2
+**Project ID**: PVT_kwDOECmZr84BTbZa
 **Input**: User description: "Binary pushback classifier using Burn framework. Train a 2-layer MLP at daemon startup from reference set phrases. Expose as mlp strategy alongside existing cosine strategies. Cache trained weights. Benchmark integration."
 
 ## Clarifications
