@@ -436,4 +436,93 @@ mod tests {
             "margin = {margin}, expected 1.0"
         );
     }
+
+    #[test]
+    fn content_hash_deterministic() {
+        let pos = vec!["hello".to_string(), "world".to_string()];
+        let neg = vec!["bad".to_string(), "ugly".to_string()];
+        let h1 = content_hash(&pos, &neg);
+        let h2 = content_hash(&pos, &neg);
+        assert_eq!(h1, h2, "same phrases must produce same hash");
+
+        // Reversed order should also produce the same hash (sorted internally).
+        let pos_rev = vec!["world".to_string(), "hello".to_string()];
+        let neg_rev = vec!["ugly".to_string(), "bad".to_string()];
+        let h3 = content_hash(&pos_rev, &neg_rev);
+        assert_eq!(
+            h1, h3,
+            "different input order must produce same hash after sorting"
+        );
+    }
+
+    #[test]
+    fn content_hash_invalidation() {
+        let pos_a = vec!["hello".to_string()];
+        let neg_a = vec!["bad".to_string()];
+        let pos_b = vec!["hello".to_string(), "extra".to_string()];
+        let neg_b = vec!["bad".to_string()];
+
+        let h_a = content_hash(&pos_a, &neg_a);
+        let h_b = content_hash(&pos_b, &neg_b);
+        assert_ne!(h_a, h_b, "different phrases must produce different hashes");
+
+        // Changing negatives also invalidates.
+        let neg_c = vec!["worse".to_string()];
+        let h_c = content_hash(&pos_a, &neg_c);
+        assert_ne!(
+            h_a, h_c,
+            "different negative phrases must produce different hashes"
+        );
+    }
+
+    #[test]
+    fn cache_path_format() {
+        let dir = Path::new("/tmp/test-cache");
+        let hash = "abc123def456";
+        let p = cache_path(dir, hash);
+        assert_eq!(p, PathBuf::from("/tmp/test-cache/mlp/abc123def456.mpk"));
+    }
+
+    #[test]
+    fn save_load_roundtrip() {
+        let device = <TestBackend as Backend>::Device::default();
+        let config = MlpConfig::new();
+        let model = config.init::<TestBackend>(&device);
+
+        // Create a deterministic input tensor.
+        let input = Tensor::<TestBackend, 2>::ones([2, 387], &device);
+
+        // Run forward pass on original model.
+        let output_before: Vec<f32> = model.forward(input.clone()).into_data().to_vec().unwrap();
+
+        // Save to a temp directory.
+        let tmp_dir = std::env::temp_dir().join("csn_test_roundtrip");
+        std::fs::create_dir_all(tmp_dir.join("mlp")).expect("create temp mlp dir");
+        let weight_path = tmp_dir.join("mlp").join("test_weights.mpk");
+
+        save_weights(model, &weight_path).expect("save_weights should succeed");
+
+        // Load back.
+        let loaded = load_weights::<TestBackend>(&config, &weight_path, &device)
+            .expect("load_weights should succeed");
+
+        // Run forward pass on loaded model.
+        let output_after: Vec<f32> = loaded.forward(input).into_data().to_vec().unwrap();
+
+        // Outputs must match exactly (same weights, deterministic forward pass).
+        assert_eq!(
+            output_before.len(),
+            output_after.len(),
+            "output lengths must match"
+        );
+        for (i, (a, b)) in output_before.iter().zip(output_after.iter()).enumerate() {
+            assert!(
+                (a - b).abs() < 1e-6,
+                "output[{i}] mismatch: before={a}, after={b}"
+            );
+        }
+
+        // Cleanup.
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
 }
