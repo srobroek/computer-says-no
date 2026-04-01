@@ -66,11 +66,22 @@ impl ClassifyResult {
 }
 
 /// Classify text against a reference set.
-pub fn classify(text_embedding: &Embedding, reference_set: &ReferenceSet) -> ClassifyResult {
+///
+/// When `trained_model` is `Some` and the reference set is binary, the MLP
+/// classifier is used instead of the pure cosine path.
+pub fn classify(
+    text_embedding: &Embedding,
+    reference_set: &ReferenceSet,
+    trained_model: Option<&TrainedModel>,
+) -> ClassifyResult {
     let threshold = reference_set.metadata.threshold;
 
     match &reference_set.kind {
         ReferenceSetKind::Binary(binary) => {
+            if let Some(model) = trained_model {
+                return ClassifyResult::Binary(classify_with_mlp(text_embedding, model));
+            }
+
             let (pos_score, pos_phrase) =
                 best_match(text_embedding, &binary.positive, &binary.positive_phrases);
             let (neg_score, _neg_phrase) = if binary.negative.is_empty() {
@@ -133,9 +144,10 @@ pub fn classify_text(
     engine: &mut EmbeddingEngine,
     text: &str,
     reference_set: &ReferenceSet,
+    trained_model: Option<&TrainedModel>,
 ) -> anyhow::Result<ClassifyResult> {
     let embedding = engine.embed_one(text)?;
-    Ok(classify(&embedding, reference_set))
+    Ok(classify(&embedding, reference_set, trained_model))
 }
 
 /// Classify a text embedding using a trained MLP model.
@@ -145,7 +157,6 @@ pub fn classify_text(
 /// input vector, and runs the MLP forward pass. Returns a `BinaryResult` where
 /// `confidence` is the MLP sigmoid output, `scores` are the raw cosine maxima,
 /// and `top_phrase` is the phrase with the highest positive cosine similarity.
-#[allow(dead_code)]
 pub fn classify_with_mlp(text_embedding: &Embedding, trained_model: &TrainedModel) -> BinaryResult {
     // Compute cosine features: [max_pos, max_neg, margin].
     let cosine = compute_cosine_features(

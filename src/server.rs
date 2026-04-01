@@ -197,7 +197,7 @@ async fn handle_classify(
         .engine
         .lock()
         .map_err(|_| AppError::internal("lock poisoned".to_string()))?;
-    let result = classifier::classify_text(&mut engine, &req.text, set)
+    let result = classifier::classify_text(&mut engine, &req.text, set, None)
         .map_err(|e| AppError::internal(e.to_string()))?;
 
     Ok(Json(result))
