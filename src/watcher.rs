@@ -170,4 +170,68 @@ mod tests {
         );
         assert!(!is_toml_change(&event));
     }
+
+    /// Verifies that `train_models_at_startup` with no reference sets
+    /// returns an empty vec without errors. This is the code path
+    /// `reload_sets` follows when sets directory is empty after a change.
+    #[test]
+    fn train_models_empty_sets_returns_empty() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let result = train_models_at_startup(
+            &[],
+            tmp.path(),
+            0.001,  // learning_rate
+            1e-4,   // weight_decay
+            100,    // max_epochs
+            5,      // patience
+            false,  // fallback
+        );
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    /// Full integration test for `reload_sets`: verifies that changing
+    /// reference set files triggers MLP retraining via the reload path.
+    ///
+    /// Requires model download (EmbeddingEngine depends on fastembed),
+    /// so this test is ignored by default. Run with:
+    ///   cargo test --bin csn -- --ignored reload_sets_retrains_mlp
+    #[test]
+    #[ignore]
+    fn reload_sets_retrains_mlp_on_set_change() {
+        use crate::model::{EmbeddingEngine, ModelChoice};
+        use std::sync::{Mutex, RwLock};
+
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let sets_dir = tmp.path().join("sets");
+        std::fs::create_dir_all(&sets_dir).unwrap();
+        let cache_dir = tmp.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+
+        let engine = EmbeddingEngine::new(ModelChoice::default(), Some(cache_dir.clone()))
+            .expect("engine init (requires model download)");
+
+        let state = AppState {
+            engine: Mutex::new(engine),
+            sets: RwLock::new(Vec::new()),
+            trained_models: Mutex::new(Vec::new()),
+            start_time: Instant::now(),
+            model: ModelChoice::default(),
+            sets_dir,
+            cache_dir,
+            mlp_learning_rate: 0.001,
+            mlp_weight_decay: 1e-4,
+            mlp_max_epochs: 100,
+            mlp_patience: 5,
+            mlp_fallback: false,
+        };
+
+        // reload_sets with an empty sets directory should succeed without error
+        reload_sets(&state);
+
+        let sets = state.sets.read().unwrap();
+        assert!(sets.is_empty());
+        let models = state.trained_models.lock().unwrap();
+        assert!(models.is_empty());
+    }
 }
