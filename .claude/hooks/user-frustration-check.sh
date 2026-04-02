@@ -9,8 +9,8 @@ USER_MESSAGE=$(echo "$INPUT" | jq -r '.prompt // empty')
 
 [ -z "$USER_MESSAGE" ] && exit 0
 
-# Configurable threshold (default 80%)
-THRESHOLD="${CSN_FRUSTRATION_THRESHOLD:-0.80}"
+# Configurable threshold (default 60% — softmax distributes across categories)
+THRESHOLD="${CSN_FRUSTRATION_THRESHOLD:-0.60}"
 
 # Find the csn binary (release build in this repo)
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
