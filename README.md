@@ -73,24 +73,19 @@ csn classify "test" --set corrections --json
 ## Architecture
 
 ```mermaid
-graph TD
-    A[User message] --> B{Daemon warm?}
-    B -->|~5ms| C[Unix socket]
-    B -->|~370ms| D[In-process]
-    C --> E[Embed]
+flowchart TD
+    A["User message"] --> B{"Daemon\nrunning?"}
+    B -- "Yes (~5ms)" --> C["Send via\nUnix socket"]
+    B -- "No (~370ms)" --> D["Load model\nin-process"]
+    C --> E
     D --> E
 
-    subgraph Classification pipeline
-        E[ONNX embed → 384-dim] --> F[Features]
-        F --> F1[Per-category cosine similarity]
-        F --> F2[Character n-gram hashing]
-        F1 --> G[MLP · softmax]
-        F2 --> G
-    end
-
-    G --> H["**correction** 0.98
-    frustration 0.01
-    neutral 0.01"]
+    E["ONNX Embedding\n384-dim vector"] --> F["Per-category\ncosine features\n(N × 3)"]
+    E --> G["Character\nn-gram features\n(256-dim)"]
+    F --> H["MLP Neural Network"]
+    G --> H
+    H --> I["Softmax"]
+    I --> J["correction: 0.98\nfrustration: 0.01\nneutral: 0.01"]
 ```
 
 ### Components
