@@ -44,8 +44,8 @@
 - [ ] T009 [US2] Define `ListSetsTool` struct in `src/mcp.rs` using `#[mcp_tool(name = "list_sets", description = "...")]` with no fields. Implement `call_tool()` that iterates reference sets and returns JSON array of {name, mode, phrase_count}
 - [ ] T010 Create `tool_box!(CsnTools, [ClassifyTool, ListSetsTool, EmbedTool, SimilarityTool])` enum in `src/mcp.rs` (EmbedTool and SimilarityTool can be stubs initially). Implement `ServerHandler` trait on `McpHandler`: `handle_list_tools_request` returns `CsnTools::tools()`, `handle_call_tool_request` dispatches via `CsnTools::try_from(params)` match
 - [ ] T011 Add `Mcp` subcommand to `Command` enum in `src/main.rs`. Implement `cmd_mcp()`: load config, init EmbeddingEngine, load reference sets, train MLP models, create `McpHandler`, create `StdioTransport`, start MCP server via `server_runtime::create_server`. Add `eprintln!` status messages during loading (stderr, not stdout — stdout is MCP protocol)
-- [ ] T012 [US1] Unit test in `src/mcp.rs`: verify `ClassifyTool` returns valid JSON with match, confidence, top_phrase, scores fields for a known input (use synthetic embeddings like spec 003 tests)
-- [ ] T013 [US2] Unit test in `src/mcp.rs`: verify `ListSetsTool` returns correct set metadata
+- [x] T012 [US1] Unit test in `src/mcp.rs`: verify `ClassifyTool` returns valid JSON with match, confidence, top_phrase, scores fields for a known input (use synthetic embeddings like spec 003 tests)
+- [x] T013 [US2] Unit test in `src/mcp.rs`: verify `ListSetsTool` returns correct set metadata
 
 **Checkpoint**: `csn mcp` starts, `classify` and `list_sets` tools work.
 
@@ -57,10 +57,10 @@
 
 **Independent Test**: Call `embed` and `similarity` tools via MCP, verify results.
 
-- [ ] T014 [P] [US3] Define `EmbedTool` struct in `src/mcp.rs` using `#[mcp_tool(name = "embed", description = "...")]` with field `text: String`. Implement `call_tool()` that calls `engine.embed_one()` and returns JSON with embedding, dimensions, model name
-- [ ] T015 [P] [US4] Define `SimilarityTool` struct in `src/mcp.rs` using `#[mcp_tool(name = "similarity", description = "...")]` with fields `a: String` and `b: String`. Implement `call_tool()` that embeds both texts and computes `cosine_similarity`, returns JSON with similarity score and model name
-- [ ] T016 [US3] Unit test for `EmbedTool`: verify output has correct embedding dimensions
-- [ ] T017 [US4] Unit test for `SimilarityTool`: verify similarity of identical texts is ~1.0
+- [x] T014 [P] [US3] Define `EmbedTool` struct in `src/mcp.rs` using `#[mcp_tool(name = "embed", description = "...")]` with field `text: String`. Implement `call_tool()` that calls `engine.embed_one()` and returns JSON with embedding, dimensions, model name
+- [x] T015 [P] [US4] Define `SimilarityTool` struct in `src/mcp.rs` using `#[mcp_tool(name = "similarity", description = "...")]` with fields `a: String` and `b: String`. Implement `call_tool()` that embeds both texts and computes `cosine_similarity`, returns JSON with similarity score and model name
+- [x] T016 [US3] Unit test for `EmbedTool`: verify output has correct embedding dimensions
+- [x] T017 [US4] Unit test for `SimilarityTool`: verify similarity of identical texts is ~1.0
 
 **Checkpoint**: All 4 MCP tools functional.
 
@@ -72,7 +72,7 @@
 
 **Independent Test**: Run `csn classify` without `--standalone`, configure MCP in Claude Code.
 
-- [ ] T018 [US5] Verify all CLI subcommands work without `--standalone` flag. Run `csn classify "test" --set corrections`, `csn embed "test"`, `csn similarity "a" "b"`, `csn models`, `csn sets list`. Fix any remaining references to daemon/standalone logic
+- [x] T018 [US5] Verify all CLI subcommands work without `--standalone` flag. Run `csn classify "test" --set corrections`, `csn embed "test"`, `csn similarity "a" "b"`, `csn models`, `csn sets list`. Fix any remaining references to daemon/standalone logic
 - [ ] T019 [US6] [MANUAL] Configure `csn mcp` in Claude Code or MCP Inspector. Verify tool discovery and all 4 tools callable. Document configuration in quickstart.md if needed
 
 **Checkpoint**: End-to-end MCP + CLI working.
@@ -83,9 +83,9 @@
 
 **Purpose**: Replace REST integration tests with MCP tests
 
-- [ ] T020 Remove REST-based integration tests from `tests/integration_test.rs` (daemon subprocess tests that hit HTTP endpoints)
-- [ ] T021 Add MCP integration test in `tests/integration_test.rs`: spawn `csn mcp` as subprocess, send `initialize` JSON-RPC request via stdin, verify `tools/list` response contains 4 tools. Mark `#[ignore]` (requires model download)
-- [ ] T022 Run `just check` (clippy + fmt + test + build). Fix any issues
+- [x] T020 Remove REST-based integration tests from `tests/integration_test.rs` (daemon subprocess tests that hit HTTP endpoints)
+- [x] T021 Add MCP integration test in `tests/integration_test.rs`: spawn `csn mcp` as subprocess, send `initialize` JSON-RPC request via stdin, verify `tools/list` response contains 4 tools. Mark `#[ignore]` (requires model download)
+- [x] T022 Run `just check` (clippy + fmt + test + build). Fix any issues
 
 **Checkpoint**: All tests pass, clippy clean.
 
@@ -95,9 +95,9 @@
 
 **Purpose**: Cleanup, docs, validation
 
-- [ ] T023 [P] Update CLAUDE.md: remove daemon/REST/watcher references, add MCP subcommand, update test count and architecture description
-- [ ] T024 [P] Update `docs/spec-dependency-graph.md`: mark 004 as done
-- [ ] T025 Run `cargo build --release` and compare binary size to pre-spec-004 binary (expect decrease from removing axum/reqwest/notify). Record results
+- [x] T023 [P] Update CLAUDE.md: remove daemon/REST/watcher references, add MCP subcommand, update test count and architecture description
+- [x] T024 [P] Update `docs/spec-dependency-graph.md`: mark 004 as done
+- [x] T025 Run `cargo build --release` and compare binary size to pre-spec-004 binary (expect decrease from removing axum/reqwest/notify). Record results
 - [ ] T026 [MANUAL] Verify MCP tools work end-to-end from Claude Code with real model
 
 ---
