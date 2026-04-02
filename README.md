@@ -4,7 +4,7 @@ Local embedding classifier for real-time text classification. Built for AI agent
 
 ## What it does
 
-`csn` embeds text using ONNX models (via fastembed) and classifies it against reference sets of example phrases. A 2-layer MLP neural network with character n-gram features provides typo-robust classification.
+`csn` embeds text using ONNX models (via fastembed) and classifies it against reference sets of example phrases. An MLP neural network with character n-gram features provides typo-robust classification with per-category confidence scores.
 
 **Primary use case**: A Claude Code `UserPromptSubmit` hook that detects user frustration and corrections on every message, prompting the agent to reflect, acknowledge, and course-correct.
 
@@ -14,51 +14,63 @@ Local embedding classifier for real-time text classification. Built for AI agent
 # Build
 cargo build --release
 
-# Classify text
+# Classify text (multi-category)
 ./target/release/csn classify "what the fuck" --set corrections --json
-# → {"match": true, "confidence": 0.99, "top_phrase": "what in the actual fuck", ...}
+# → {"category": "frustration", "confidence": 0.99, "all_scores": [...]}
 
-# First call starts a background daemon (~254ms). Subsequent calls: ~5ms.
-./target/release/csn classify "looks good ship it" --set corrections --json
-# → {"match": false, "confidence": 0.00, ...}
+./target/release/csn classify "wrong file" --set corrections --json
+# → {"category": "correction", "confidence": 0.88, "all_scores": [...]}
+
+./target/release/csn classify "sounds good" --set corrections --json
+# → {"category": "neutral", "confidence": 0.95, "all_scores": [...]}
+
+# First call trains the MLP (~10s). Subsequent calls: ~5ms via background daemon.
 ```
 
 ## Installation
 
-### Prerequisites
+### From source (recommended)
 
-- Rust 1.92+ (2024 edition)
-- ~500MB disk for ONNX model cache (downloaded on first run)
-
-### Build
+**Prerequisites**: Rust 1.92+ (2024 edition), ~500MB disk for ONNX model cache.
 
 ```fish
 git clone https://github.com/srobroek/computer-says-no.git
 cd computer-says-no
 cargo build --release
+# Binary: target/release/csn
 ```
 
-The binary is at `target/release/csn`. No runtime dependencies — single binary, models cached locally.
+### Install to PATH
+
+```fish
+cargo install --path .
+# or copy manually:
+cp target/release/csn ~/.local/bin/
+```
+
+### From GitHub releases
+
+Download the latest binary for your platform from [Releases](https://github.com/srobroek/computer-says-no/releases). No runtime dependencies — single binary, models cached locally on first run.
 
 ### Verify
 
 ```fish
-./target/release/csn classify "test" --set corrections --json
-# Should output JSON with match/confidence/top_phrase/scores
+csn classify "test" --set corrections --json
+# Should output JSON with category/confidence/all_scores
 ```
 
 ## Architecture
 
 ```
-User message → csn classify → daemon (warm) or in-process (cold)
+User message → csn classify → daemon (warm, ~5ms) or in-process (cold, ~370ms)
                                   ↓
-                          embed text (ONNX)
+                          embed text (ONNX, 384-dim)
                                   ↓
-                    cosine similarity + char n-grams
+               per-category cosine features + char n-grams (256-dim)
                                   ↓
-                          MLP classifier
+                    MLP classifier (softmax → per-category scores)
                                   ↓
-                      match / no-match + confidence
+                    winning category + confidence + all scores
 ```
 
 - **CLI**: `csn classify`, `csn embed`, `csn similarity` — auto-route through background daemon
@@ -67,35 +79,42 @@ User message → csn classify → daemon (warm) or in-process (cold)
 
 ## Hook setup (Claude Code)
 
-The hook classifies every user message and provides feedback to the agent when it detects corrections or frustration.
+The hook classifies every user message and provides category-tailored feedback to the agent.
 
-### 1. Add the hook to your project
+### 1. Build csn
 
-Copy the hook script to your project's `.claude/hooks/` directory:
+```fish
+cd /path/to/computer-says-no
+cargo build --release
+```
+
+### 2. Add the hook to your project
 
 ```fish
 mkdir -p .claude/hooks
-cp path/to/computer-says-no/.claude/hooks/user-frustration-check.sh .claude/hooks/
+cp /path/to/computer-says-no/.claude/hooks/user-frustration-check.sh .claude/hooks/
 chmod +x .claude/hooks/user-frustration-check.sh
 ```
 
-### 2. Edit the hook paths
+### 3. Edit the hook paths
 
-Open `.claude/hooks/user-frustration-check.sh` and update `REPO_ROOT` to point to where you built csn:
+Open `.claude/hooks/user-frustration-check.sh` and update the paths to point to where you built csn:
 
 ```bash
-# Option A: Hardcode the path
 CSN="/path/to/computer-says-no/target/release/csn"
 SETS_DIR="/path/to/computer-says-no/reference-sets"
+```
 
-# Option B: Use an environment variable
+Or use environment variables:
+
+```bash
 CSN="${CSN_BIN:-/path/to/computer-says-no/target/release/csn}"
 SETS_DIR="${CSN_SETS_DIR:-/path/to/computer-says-no/reference-sets}"
 ```
 
-### 3. Register the hook in project settings
+### 4. Register the hook
 
-Add to your project's `.claude/settings.json`:
+Add to `.claude/settings.json` (project or global):
 
 ```json
 {
@@ -115,191 +134,222 @@ Add to your project's `.claude/settings.json`:
 }
 ```
 
-Or add to your global `~/.claude/settings.json` to enable for all projects.
+### 5. Configure threshold (optional)
 
-### 4. Configure threshold (optional)
-
-The default threshold is 80% confidence. Set `CSN_FRUSTRATION_THRESHOLD` to adjust:
+Default: 80% confidence. Adjust via `CSN_FRUSTRATION_THRESHOLD`:
 
 ```fish
-# In your shell config or .envrc
 set -gx CSN_FRUSTRATION_THRESHOLD 0.75  # more sensitive
 set -gx CSN_FRUSTRATION_THRESHOLD 0.90  # less sensitive
 ```
 
 ### What the hook detects
 
-The `corrections` reference set catches two types of signals:
-
-| Signal type | Examples | What it means |
-|-------------|----------|---------------|
-| **Corrections** | "no revert that", "wrong file", "that's not what I asked" | The agent did the wrong thing — acknowledge and fix |
-| **Frustration** | "what the fuck", "are you kidding me", "I give up" | The user is upset — reflect on what went wrong, adjust approach |
-| **Sarcasm** | "great, another bug", "thanks for nothing", "chef's kiss of bad code" | Passive-aggressive feedback — take it seriously |
-
-The hook prompt instructs the agent to:
-1. **Reflect** on what it did wrong (last 2-3 actions)
-2. **Acknowledge** the issue without being defensive
-3. **Course-correct** its approach
-4. **Save a lesson learned** to memory for future sessions
+| Category | Examples | Hook behavior |
+|----------|----------|---------------|
+| **Correction** | "wrong file", "revert that", "not what I asked" | Acknowledge mistake, confirm understanding, adjust |
+| **Frustration** | "wtf", "are you kidding me", "I give up" | Reflect on what went wrong, de-escalate, save lesson |
+| **Neutral** | "sounds good", "add error handling", "how does this work?" | Hook does not fire |
 
 ## Reference sets
 
-Reference sets are TOML files in `reference-sets/` that define classification patterns.
+Reference sets are TOML files that define classification patterns. Place them in `reference-sets/` (shipped with the binary) or `~/.config/computer-says-no/reference-sets/` (user-defined).
 
-### Format
+### Multi-category format (recommended)
 
 ```toml
 [metadata]
-name = "corrections"
-description = "Detect developer pushback, frustration, and correction"
-mode = "binary"
+name = "my-classifier"
+description = "Classify text into categories"
+mode = "multi-category"
 threshold = 0.5
 
-[phrases]
-positive = [
-    "no",
-    "wrong",
-    "revert that",
-    "what the fuck",
-    # ... more patterns
-]
-negative = [
-    "looks good",
-    "perfect",
-    "great work",
-    # ... non-matching patterns
-]
+[categories.positive]
+phrases = ["example positive 1", "example positive 2"]
+
+[categories.negative]
+phrases = ["example negative 1", "example negative 2"]
+
+[categories.neutral]
+phrases = ["neutral phrase 1", "neutral phrase 2"]
 ```
 
-- **positive**: Phrases that should trigger a match
-- **negative**: Phrases that should NOT match (helps the MLP learn the boundary)
-- **threshold**: Cosine similarity threshold for the pure-cosine fallback path
-
-### Creating custom reference sets
-
-1. Create a new `.toml` file in `reference-sets/`:
+### Binary format (simpler, for two-class problems)
 
 ```toml
 [metadata]
 name = "my-pattern"
-description = "Detect my custom pattern"
 mode = "binary"
 threshold = 0.5
 
 [phrases]
-positive = [
-    "example positive phrase 1",
-    "example positive phrase 2",
-]
-negative = [
-    "example negative phrase 1",
-    "example negative phrase 2",
+positive = ["phrases that should match"]
+negative = ["phrases that should NOT match"]
+```
+
+### Minimum requirements
+
+- Multi-category: 2+ phrases per category, 4+ total
+- Binary: 1+ positive phrase (negatives optional but improve accuracy)
+- MLP trains automatically on first use and caches weights
+
+## Creating effective reference sets
+
+### Phrase count
+
+Aim for **50+ phrases per category**. The shipped `corrections` set has ~500 per category. More phrases = better accuracy.
+
+### Near-miss negatives
+
+Include phrases that look similar but belong to a different category. This teaches the MLP where the boundary is:
+
+```toml
+# Frustration category: emotional outbursts
+[categories.frustration]
+phrases = ["what the fuck", "are you kidding me"]
+
+# Neutral category: profanity used positively (near-miss!)
+[categories.neutral]
+phrases = ["holy shit that's amazing", "fuck yeah it works"]
+```
+
+### Vocabulary coverage
+
+Cover formal, informal, profane, and abbreviated variants:
+
+```toml
+phrases = [
+    "that is incorrect",       # formal
+    "nah that's off",          # informal
+    "wtf",                     # profane abbreviation
+    "no",                      # minimal
+    "wrong file wrong line",   # compound
 ]
 ```
 
-2. Classify against it:
+### Category boundaries
+
+Use **intent** as the guide:
+
+| If the phrase is... | Category |
+|---------------------|----------|
+| Directing a specific change | Correction |
+| Expressing emotion/anger/despair | Frustration |
+| Sarcastic + frustrated undertone | Frustration |
+| Sarcastic + corrective undertone | Correction |
+| Praise, agreement, questions, instructions | Neutral |
+
+## Datasets and benchmarking
+
+### Generate scaffold datasets
 
 ```fish
-csn classify "test input" --set my-pattern --json
+csn benchmark generate-datasets
+# Creates JSON scaffolds in ~/.config/computer-says-no/datasets/
 ```
 
-3. The MLP trains automatically on first use and caches weights.
+Fill scaffolds with diverse prompts (aim for 500 per dataset). Include easy, medium, and hard tiers:
 
-### Tuning tips
-
-- **More phrases = better accuracy.** The MLP needs diverse examples to generalize. Aim for 50+ positive and 50+ negative phrases.
-- **Include near-misses in negatives.** Phrases that look similar but shouldn't match help the model learn the boundary (e.g., "holy shit that's amazing" as a negative for frustration detection).
-- **Include typo variants in positives** if you want typo robustness beyond what character n-grams provide (e.g., "srsly" alongside "seriously").
-- **Test with `csn classify --json`** to check confidence scores. Adjust your hook threshold based on where false positives/negatives land.
-
-## System learning loop
-
-The hook creates a feedback loop where the agent learns from its mistakes:
-
-```
-User sends frustrated message
-        ↓
-Hook classifies → FRUSTRATION DETECTED (95%)
-        ↓
-Agent reflects on what it did wrong
-        ↓
-Agent acknowledges and adjusts approach
-        ↓
-Agent saves lesson to memory system
-        ↓
-Future sessions: agent recalls lessons, avoids repeating mistakes
+```json
+{
+  "name": "corrections",
+  "reference_set": "corrections",
+  "prompts": [
+    {"text": "that's wrong revert it", "expected_match": true, "tier": "easy"},
+    {"text": "hmm not quite", "expected_match": true, "tier": "hard"},
+    {"text": "sounds good ship it", "expected_match": false, "tier": "easy"}
+  ]
+}
 ```
 
-### Memory integration
+### Run benchmarks
 
-The hook instructs the agent to save lessons to "any available memory system." This works with:
+```fish
+csn benchmark run                                          # all models + datasets
+csn benchmark run --model bge-small-en-v1.5-Q              # specific model
+csn benchmark run --json --output results.json             # save results
+csn benchmark run --compare old-results.json               # compare runs
+csn benchmark compare-strategies --dataset corrections     # strategy comparison
+```
 
-- **Vestige MCP** — `smart_ingest` for spaced-repetition memory
-- **File-based memory** — `~/.claude/projects/.../memory/` markdown files
-- **Any memory MCP** — the instruction is system-agnostic
+### Dataset recommendations
 
-### Tuning the learning prompt
+| Use case | Approach |
+|----------|----------|
+| AI agent hook | Use shipped `corrections` set (1600+ phrases, 3 categories) |
+| Code review classification | Multi-category: `bug`, `style`, `security`, `neutral` |
+| Sentiment analysis | Binary: `positive` / `negative` |
+| Intent detection | Multi-category: one category per intent |
+| Spam detection | Binary: `spam` / `ham` |
 
-Edit the `additionalContext` string in the hook script to change what the agent does when corrections/frustration are detected. The current prompt has 4 required actions (reflect, acknowledge, course-correct, learn). You can:
+## MCP server
 
-- Remove the LEARN step if you don't want memory integration
-- Add a SUMMARIZE step to log incidents
-- Change REFLECT to focus on specific patterns (e.g., "check if you ignored the user's explicit instruction")
-- Add severity tiers (>95% = strong frustration, >80% = mild correction)
+`csn mcp` exposes 4 tools over stdio:
+
+| Tool | Description |
+|------|-------------|
+| `classify` | Classify text against a reference set |
+| `list_sets` | List sets with categories and phrase counts |
+| `embed` | Generate embedding vector |
+| `similarity` | Cosine similarity between two texts |
+
+Add to your MCP config:
+
+```json
+{
+  "mcpServers": {
+    "csn": {
+      "command": "/path/to/csn",
+      "args": ["mcp"]
+    }
+  }
+}
+```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `csn classify <text> --set <name> --json` | Classify text against a reference set |
-| `csn embed <text>` | Generate embedding vector |
-| `csn similarity <a> <b>` | Cosine similarity between two texts |
-| `csn mcp` | Run as MCP server (stdio, for Claude Code) |
-| `csn stop` | Stop the background daemon |
-| `csn models` | List available embedding models |
-| `csn sets list` | List loaded reference sets |
-| `csn benchmark run` | Run accuracy benchmark |
+| `csn classify <text> --set <name> --json` | Classify text |
+| `csn embed <text>` | Embedding vector |
+| `csn similarity <a> <b>` | Cosine similarity |
+| `csn mcp` | MCP server (stdio) |
+| `csn stop` | Stop daemon |
+| `csn models` | List models |
+| `csn sets list` | List reference sets |
+| `csn benchmark run` | Accuracy benchmark |
+| `csn benchmark compare-strategies` | Strategy comparison |
+| `csn benchmark generate-datasets` | Dataset scaffolds |
 
 ## Configuration
 
-Config file: `~/.config/computer-says-no/config.toml`
+`~/.config/computer-says-no/config.toml`:
 
 ```toml
-model = "bge-small-en-v1.5-Q"    # embedding model
-log_level = "warn"                 # trace, debug, info, warn, error
+model = "bge-small-en-v1.5-Q"
+log_level = "warn"
 
 [mlp]
-fallback = false                   # fall back to cosine if MLP training fails
+fallback = false
 learning_rate = 0.001
 weight_decay = 0.001
 max_epochs = 500
 patience = 10
 
 [daemon]
-idle_timeout = 300                 # seconds before daemon self-exits (default: 5 min)
+idle_timeout = 300
 ```
 
-Environment variable overrides: `CSN_MODEL`, `CSN_LOG_LEVEL`, `CSN_SETS_DIR`, `CSN_CACHE_DIR`, `CSN_IDLE_TIMEOUT`, `CSN_MLP_FALLBACK`.
+Environment overrides: `CSN_MODEL`, `CSN_LOG_LEVEL`, `CSN_SETS_DIR`, `CSN_CACHE_DIR`, `CSN_IDLE_TIMEOUT`, `CSN_MLP_FALLBACK`.
 
 ## Performance
 
 | Metric | Value |
 |--------|-------|
-| Warm-path classify (daemon running) | ~5ms |
-| Cold-start classify (daemon starts) | ~370ms |
-| Model load + MLP train (first ever) | ~10s |
-| Binary size (release) | ~25MB |
-| MLP training (cached weights) | 0ms (loaded from disk) |
-| Character feature overhead | <3ms |
-
-## How it works
-
-1. **Embedding**: fastembed (ONNX) embeds text into a 384-dim vector
-2. **Cosine features**: Max similarity to positive/negative reference phrases (3 values)
-3. **Character n-grams**: 256-dim hashed bigram/trigram features for typo robustness
-4. **MLP**: 2-layer neural network (643 → 256 → 128 → 1, sigmoid) classifies the combined features
-5. **Daemon**: Background process keeps the model warm via unix socket
+| Warm classify (daemon) | ~5ms |
+| Cold classify (daemon starts) | ~370ms |
+| First run (model download + train) | ~10s |
+| Binary size (stripped) | ~25MB |
 
 ## License
 

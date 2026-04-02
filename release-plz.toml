@@ -1,0 +1,20 @@
+[workspace]
+publish = false
+git_tag_enable = true
+git_release_enable = true
+git_release_draft = false
+semver_check = false
+features_always_increment_minor = true
+dependencies_update = true
+pr_labels = ["release"]
+
+[changelog]
+commit_parsers = [
+    { message = "^feat", group = "Features" },
+    { message = "^fix", group = "Bug Fixes" },
+    { message = "^perf", group = "Performance" },
+    { message = "^refactor", group = "Refactoring" },
+    { message = "^docs", group = "Documentation" },
+    { message = "^test", group = "Testing" },
+    { message = "^chore", group = "Miscellaneous" },
+]
