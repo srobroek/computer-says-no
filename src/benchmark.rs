@@ -715,7 +715,7 @@ mod tests {
 
     #[test]
     fn percentile_basic() {
-        let durations: Vec<Duration> = (1..=100).map(|i| Duration::from_millis(i)).collect();
+        let durations: Vec<Duration> = (1..=100).map(Duration::from_millis).collect();
         assert_eq!(percentile(&durations, 50.0), Duration::from_millis(50));
         assert_eq!(percentile(&durations, 95.0), Duration::from_millis(95));
         assert_eq!(percentile(&durations, 99.0), Duration::from_millis(99));
@@ -734,7 +734,7 @@ mod tests {
 
     #[test]
     fn cv_varied_values() {
-        let durations: Vec<Duration> = (1..=10).map(|i| Duration::from_millis(i)).collect();
+        let durations: Vec<Duration> = (1..=10).map(Duration::from_millis).collect();
         let cv = coefficient_of_variation(&durations);
         assert!(cv > 0.0 && cv < 1.0);
     }

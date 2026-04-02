@@ -355,7 +355,7 @@ fn init_tracing(log_level: &str) {
 // --- Remote (daemon) commands ---
 
 fn daemon_url(config: &AppConfig, path: &str) -> String {
-    format!("http://127.0.0.1:{}{}", config.port, path)
+    format!("http://{}:{}{}", config.host, config.port, path)
 }
 
 fn check_daemon(config: &AppConfig) -> Result<reqwest::blocking::Client> {
@@ -368,8 +368,8 @@ fn check_daemon(config: &AppConfig) -> Result<reqwest::blocking::Client> {
         .send()
         .with_context(|| {
             format!(
-                "daemon not reachable at 127.0.0.1:{}. Start it with `csn serve` or use --standalone",
-                config.port
+                "daemon not reachable at {}:{}. Start it with `csn serve` or use --standalone",
+                config.host, config.port
             )
         })?;
 

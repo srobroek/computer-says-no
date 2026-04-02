@@ -79,7 +79,10 @@ fn reload_sets(state: &AppState) {
     // Load reference sets while holding the engine lock, then release it
     // before MLP training so classify/embed/similarity requests aren't blocked.
     let new_sets = {
-        let mut engine = state.engine.lock().unwrap();
+        let Ok(mut engine) = state.engine.lock() else {
+            tracing::error!("engine lock poisoned, skipping reload");
+            return;
+        };
         load_all_reference_sets(&state.sets_dir, &mut engine, Some(&state.cache_dir))
     };
 
@@ -99,10 +102,12 @@ fn reload_sets(state: &AppState) {
             ) {
                 Ok(new_models) => {
                     let model_count = new_models.len();
-                    let mut sets = state.sets.write().unwrap();
-                    *sets = new_sets;
-                    let mut models = state.trained_models.lock().unwrap();
-                    *models = new_models;
+                    if let Ok(mut sets) = state.sets.write() {
+                        *sets = new_sets;
+                    }
+                    if let Ok(mut models) = state.trained_models.lock() {
+                        *models = new_models;
+                    }
                     tracing::info!(
                         count,
                         model_count,
@@ -111,8 +116,9 @@ fn reload_sets(state: &AppState) {
                 }
                 Err(e) => {
                     // MLP training failed — still swap the sets so embedding-only classify works
-                    let mut sets = state.sets.write().unwrap();
-                    *sets = new_sets;
+                    if let Ok(mut sets) = state.sets.write() {
+                        *sets = new_sets;
+                    }
                     tracing::warn!(error = %e, count, "reference sets reloaded but MLP retrain failed, keeping previous models");
                 }
             }

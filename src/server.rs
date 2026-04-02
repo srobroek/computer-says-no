@@ -159,7 +159,7 @@ pub async fn serve(config: &AppConfig) -> anyhow::Result<()> {
         .route("/sets", get(handle_sets))
         .with_state(state);
 
-    let addr = format!("127.0.0.1:{}", config.port);
+    let addr = format!("{}:{}", config.host, config.port);
     tracing::info!(%addr, elapsed = ?start.elapsed(), "server ready");
     let listener = tokio::net::TcpListener::bind(&addr).await.map_err(|e| {
         if e.kind() == std::io::ErrorKind::AddrInUse {

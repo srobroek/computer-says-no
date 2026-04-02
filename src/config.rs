@@ -20,6 +20,7 @@ struct MlpFileConfig {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 struct FileConfig {
+    host: Option<String>,
     port: Option<u16>,
     model: Option<String>,
     log_level: Option<String>,
@@ -31,6 +32,7 @@ struct FileConfig {
 /// Resolved application configuration (all layers merged).
 #[derive(Debug, Clone)]
 pub struct AppConfig {
+    pub host: String,
     pub port: u16,
     pub model: ModelChoice,
     pub log_level: String,
@@ -39,15 +41,10 @@ pub struct AppConfig {
     pub config_dir: PathBuf,
     pub cache_dir: PathBuf,
     pub datasets_dir: PathBuf,
-    #[allow(dead_code)]
     pub mlp_fallback: bool,
-    #[allow(dead_code)]
     pub mlp_learning_rate: f64,
-    #[allow(dead_code)]
     pub mlp_weight_decay: f64,
-    #[allow(dead_code)]
     pub mlp_max_epochs: usize,
-    #[allow(dead_code)]
     pub mlp_patience: usize,
 }
 
@@ -63,6 +60,7 @@ pub struct CliOverrides {
 }
 
 impl AppConfig {
+    const DEFAULT_HOST: &'static str = "127.0.0.1";
     const DEFAULT_PORT: u16 = 9847;
     const DEFAULT_LOG_LEVEL: &'static str = "warn";
     const DEFAULT_MLP_FALLBACK: bool = false;
@@ -75,6 +73,11 @@ impl AppConfig {
     pub fn load(overrides: CliOverrides) -> Result<Self> {
         let config_dir = Self::config_dir();
         let file_config = Self::load_file(&config_dir);
+
+        let host = std::env::var("CSN_HOST")
+            .ok()
+            .or(file_config.host)
+            .unwrap_or_else(|| Self::DEFAULT_HOST.to_string());
 
         let port = overrides
             .port
@@ -132,6 +135,7 @@ impl AppConfig {
         let mlp_patience = mlp_file.patience.unwrap_or(Self::DEFAULT_MLP_PATIENCE);
 
         Ok(Self {
+            host,
             port,
             model,
             log_level,
