@@ -140,9 +140,9 @@ pub fn request_via_daemon(config: &AppConfig, request: &DaemonRequest) -> Option
         cleanup_stale_files(config);
     }
 
-    // Try to spawn daemon
-    if let Err(e) = spawn_daemon(config) {
-        eprintln!("Warning: could not start daemon: {e}");
+    // Try to spawn daemon — if it doesn't start in time (e.g., first run
+    // downloading models), silently fall back to in-process classification.
+    if spawn_daemon(config).is_err() {
         return None;
     }
 
