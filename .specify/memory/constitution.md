@@ -1,17 +1,11 @@
 <!--
 Sync Impact Report
-- Version change: 1.0.1 → 2.0.0 (MAJOR — architectural redesign)
+- Version change: 2.0.0 → 2.1.0 (MINOR — lazy daemon addition)
 - Modified principles:
-  - II. "Dual Protocol, One Port" → "MCP over Stdio"
-  - III. "Configurable Classification via Reference Sets" — removed hot-reload MUST
-  - IV. "Warm-First Performance" → "Fast-Start Performance"
-- Added sections: none
-- Removed sections: none (content updated in place)
-- Technical Constraints changes: removed axum 0.8, notify 7, service-manager; added rust-mcp-sdk
-- Templates requiring updates:
-  - .specify/templates/plan-template.md ✅ no changes needed (Constitution Check section is dynamic)
-  - .specify/templates/spec-template.md ✅ no changes needed (generic template)
-  - .specify/templates/tasks-template.md ✅ no changes needed (generic template)
+  - II. "MCP over Stdio" — added lazy unix socket daemon for CLI acceleration
+  - IV. "Fast-Start Performance" — added warm-path targets for daemon
+- Technical Constraints changes: added nix 0.29
+- Templates requiring updates: none
 - Follow-up TODOs: none
 -->
 
@@ -28,22 +22,25 @@ or companion services. ONNX models are downloaded on first use and cached locall
 **Rationale**: The primary consumers are Claude Code hooks and CLI scripts. Any friction
 in setup (Python venvs, Docker, sidecar processes) directly reduces adoption.
 
-### II. MCP over Stdio
+### II. MCP over Stdio + Lazy Daemon for CLI
 
 `csn mcp` MUST serve MCP tools over stdio transport (JSON-RPC via stdin/stdout).
 MCP clients (Claude Code, Cursor) spawn `csn mcp` as a subprocess and manage
-its lifecycle. No daemon, no ports, no sockets.
+its lifecycle.
 
-- MUST NOT require a separate running daemon or server process
-- MUST NOT expose network ports — stdio is local-only by nature
-- CLI commands (`classify`, `embed`, `similarity`) MUST run in-process without
-  network calls or daemon dependency
-- MCP process loads model and reference sets once at startup, serves tools
-  for the session duration
+CLI commands (`classify`, `embed`, `similarity`) MUST transparently route through
+a lazy background daemon when available, falling back to in-process when not.
 
-**Rationale**: The ecosystem convention is stdio MCP (uvx/npx pattern). Daemon-based
-architectures require manual lifecycle management, port configuration, and process
-monitoring — unnecessary complexity for a local classification tool.
+- MCP: stdio only — no daemon, no ports, no sockets
+- CLI: unix socket daemon auto-starts on first invocation, self-exits on idle
+- MUST NOT expose network ports — unix socket is local-only
+- MUST NOT require manual daemon management — start/stop is transparent
+- Daemon and MCP server are independent processes with separate lifecycles
+
+**Rationale**: MCP follows the stdio convention (uvx/npx pattern). CLI commands
+need sub-30ms latency for hooks that run on every user prompt — cold-starting
+the model (~254ms) on every invocation is too slow. The lazy daemon keeps the
+model warm without requiring manual lifecycle management.
 
 ### III. Configurable Classification via Reference Sets
 
@@ -66,14 +63,17 @@ adoption to a single workflow.
 weights are cached. Classification latency MUST be under 50ms per tool call once
 the process is running.
 
-- Model loading happens once at process startup
+- Model loading happens once at process startup (MCP or daemon)
 - Reference set embeddings are precomputed and cached (blake3 content hash)
 - MLP weights are cached to disk, loaded on startup if hash matches
 - First-ever startup may take longer (model download + MLP training)
+- Warm-path CLI (daemon running): under 30ms end-to-end
+- Cold-path CLI (no daemon): under 500ms including daemon startup
+- Daemon self-exits after configurable idle timeout (default: 5 minutes)
 
-**Rationale**: MCP clients spawn the server on first tool call. Startup time directly
-affects perceived responsiveness. Once running, tool calls must be fast enough
-for interactive coding workflows.
+**Rationale**: MCP clients spawn the server on first tool call. CLI hooks run on
+every user prompt — warm-path latency is critical for interactive workflows.
+The lazy daemon amortizes model loading across many CLI invocations.
 
 ### V. Simplicity
 
@@ -94,6 +94,7 @@ single-binary advantage and makes the codebase harder to contribute to.
 - **MCP server**: rust-mcp-sdk (stdio transport)
 - **CLI**: clap 4 (derive)
 - **ML framework**: burn 0.20 (ndarray backend)
+- **Unix process management**: nix 0.29 (signal, process)
 - **Config**: TOML (`~/.config/computer-says-no/`), env vars (`CSN_*`), CLI flags
 - **Cache**: `~/.cache/computer-says-no/{model-name}/` with blake3 content hashing
 - **License**: Apache-2.0
@@ -120,4 +121,4 @@ Amendments require:
 All specs and plans MUST include a Constitution Check verifying compliance with
 these principles. Violations MUST be justified in the Complexity Tracking section.
 
-**Version**: 2.0.0 | **Ratified**: 2026-03-31 | **Last Amended**: 2026-04-02
+**Version**: 2.1.0 | **Ratified**: 2026-03-31 | **Last Amended**: 2026-04-02
