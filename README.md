@@ -295,7 +295,7 @@ Run benchmarks yourself:
 
 ```fish
 csn benchmark run                              # all 12 models
-csn benchmark run --model bge-small-en-v1.5-Q  # specific model
+csn benchmark run --model nomic-embed-text-v1.5-Q  # specific model
 csn benchmark run --json --output results.json # save for comparison
 csn benchmark run --compare old-results.json   # diff against previous
 ```
@@ -307,15 +307,15 @@ Results on the shipped `corrections` dataset (62 prompts, 3 categories):
 | gte-large-en-v1.5 | **87.1%** | 46.4 | 2.7s | Best accuracy |
 | gte-large-en-v1.5-Q | **87.1%** | 19.3 | 0.8s | Best accuracy, quantized |
 | nomic-embed-text-v1.5 | 85.5% | 13.1 | 0.4s | |
-| nomic-embed-text-v1.5-Q | 85.5% | 8.0 | 0.2s | Good accuracy/speed balance |
+| nomic-embed-text-v1.5-Q | 85.5% | 8.0 | 0.2s | Default model |
 | bge-small-en-v1.5 | 82.3% | 9.0 | 0.3s | |
-| bge-small-en-v1.5-Q | 82.3% | 14.4 | 0.2s | Default model |
+| bge-small-en-v1.5-Q | 82.3% | 14.4 | 0.2s | |
 | all-MiniLM-L6-v2 | 80.6% | 3.0 | 0.2s | |
 | all-MiniLM-L6-v2-Q | 79.0% | **2.5** | **0.1s** | Fastest |
 | snowflake-arctic-embed-s | 75.8% | 6.1 | 0.3s | |
 | snowflake-arctic-embed-s-Q | 75.8% | 3.7 | 0.1s | |
 
-**Recommended**: `bge-small-en-v1.5-Q` (default) balances accuracy and speed. Switch to `nomic-embed-text-v1.5-Q` for better accuracy, or `all-MiniLM-L6-v2-Q` for minimum latency.
+**Default**: `nomic-embed-text-v1.5-Q` — best accuracy/speed balance (85.5%, 8ms). Switch to `all-MiniLM-L6-v2-Q` for minimum latency (2.5ms), or `gte-large-en-v1.5-Q` for maximum accuracy (87.1%).
 
 ## MCP server
 
@@ -363,7 +363,7 @@ Config file location matches the platform config directory (macOS: `~/Library/Ap
 ```toml
 # Embedding model — smaller = faster startup, larger = better accuracy
 # See `csn models` for all options
-model = "bge-small-en-v1.5-Q"
+model = "nomic-embed-text-v1.5-Q"
 
 # Log verbosity: trace, debug, info, warn, error
 log_level = "warn"
@@ -392,7 +392,7 @@ All config file settings can be overridden via environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CSN_MODEL` | `bge-small-en-v1.5-Q` | Embedding model (see `csn models` for options) |
+| `CSN_MODEL` | `nomic-embed-text-v1.5-Q` | Embedding model (see `csn models` for options) |
 | `CSN_LOG_LEVEL` | `warn` | Log verbosity: trace, debug, info, warn, error |
 | `CSN_SETS_DIR` | Platform config dir | Path to reference sets directory |
 | `CSN_CACHE_DIR` | Platform cache dir | Path to model/weight cache |
