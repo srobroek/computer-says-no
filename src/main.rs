@@ -353,12 +353,34 @@ fn cmd_classify(config: &AppConfig, text: &str, set_name: &str, json: bool) -> R
         config.mlp_patience,
         config.mlp_fallback,
     )?;
-    eprintln!("MLP ready ({} model(s) loaded)", trained_models.len());
+    let trained_multi_models = mlp::train_multi_models_at_startup(
+        &sets,
+        &config.cache_dir,
+        config.mlp_learning_rate,
+        config.mlp_weight_decay,
+        config.mlp_max_epochs,
+        config.mlp_patience,
+        config.mlp_fallback,
+    )?;
+    eprintln!(
+        "MLP ready ({} binary, {} multi-cat)",
+        trained_models.len(),
+        trained_multi_models.len()
+    );
     let trained_model = trained_models
         .iter()
         .find(|m| m.reference_set_name == set_name);
+    let trained_multi_model = trained_multi_models
+        .iter()
+        .find(|m| m.reference_set_name == set_name);
 
-    let result = classifier::classify_text(&mut engine, text, reference_set, trained_model)?;
+    let result = classifier::classify_text(
+        &mut engine,
+        text,
+        reference_set,
+        trained_model,
+        trained_multi_model,
+    )?;
     print_classify_result(&result, json);
     Ok(())
 }
@@ -488,9 +510,28 @@ fn cmd_mcp(config: &AppConfig) -> Result<()> {
         config.mlp_patience,
         config.mlp_fallback,
     )?;
-    eprintln!("MLP ready ({} model(s))", trained_models.len());
+    let trained_multi_models = mlp::train_multi_models_at_startup(
+        &sets,
+        &config.cache_dir,
+        config.mlp_learning_rate,
+        config.mlp_weight_decay,
+        config.mlp_max_epochs,
+        config.mlp_patience,
+        config.mlp_fallback,
+    )?;
+    eprintln!(
+        "MLP ready ({} binary, {} multi-cat)",
+        trained_models.len(),
+        trained_multi_models.len()
+    );
 
-    let handler = mcp::McpHandler::new(engine, sets, trained_models, config.model);
+    let handler = mcp::McpHandler::new(
+        engine,
+        sets,
+        trained_models,
+        trained_multi_models,
+        config.model,
+    );
 
     let server_details = InitializeResult {
         server_info: Implementation {
@@ -559,18 +600,31 @@ fn cmd_sets_list(config: &AppConfig) -> Result<()> {
         return Ok(());
     }
 
-    println!("{:<20} {:<16} {:>8}", "NAME", "MODE", "PHRASES");
-    println!("{}", "-".repeat(46));
+    println!("{:<20} {:<16} {:>8}  CATEGORIES", "NAME", "MODE", "PHRASES");
+    println!("{}", "-".repeat(70));
     for s in &sets {
         let mode = match &s.kind {
             reference_set::ReferenceSetKind::Binary(_) => "binary",
             reference_set::ReferenceSetKind::MultiCategory(_) => "multi-category",
         };
+        let categories = match &s.kind {
+            reference_set::ReferenceSetKind::Binary(_) => String::new(),
+            reference_set::ReferenceSetKind::MultiCategory(m) => {
+                let mut cats: Vec<String> = m
+                    .categories
+                    .iter()
+                    .map(|(name, cat)| format!("{}({})", name, cat.phrases.len()))
+                    .collect();
+                cats.sort();
+                cats.join(", ")
+            }
+        };
         println!(
-            "{:<20} {:<16} {:>8}",
+            "{:<20} {:<16} {:>8}  {}",
             s.metadata.name,
             mode,
-            s.phrase_count()
+            s.phrase_count(),
+            categories
         );
     }
 
