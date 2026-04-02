@@ -427,7 +427,7 @@ phrases = ["fix bug", "resolve"]
         let cats = file.categories.unwrap();
 
         let mut all_phrases: Vec<&str> = Vec::new();
-        for (_, cat) in &cats {
+        for cat in cats.values() {
             for phrase in &cat.phrases {
                 all_phrases.push(phrase);
             }

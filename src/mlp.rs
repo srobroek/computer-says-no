@@ -1350,7 +1350,7 @@ mod tests {
 
         // Raw logits can be any value — they are NOT constrained to (0, 1).
         // At least some values should be outside (0, 1) for random weights.
-        let has_out_of_unit = data.iter().any(|&v| v < 0.0 || v > 1.0);
+        let has_out_of_unit = data.iter().any(|v| !(0.0..=1.0).contains(v));
         assert!(
             has_out_of_unit || data.len() == 12,
             "logits should not be constrained to (0, 1); got all in range"
