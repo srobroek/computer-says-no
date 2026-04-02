@@ -102,8 +102,8 @@
 - [x] T025 [P] Run `just check` (clippy + fmt + test + build). Fix any issues
 - [x] T026 [P] Update CLAUDE.md: add daemon/client modules, update architecture description, add `csn stop` to commands
 - [x] T027 [P] Update `docs/spec-dependency-graph.md`: add spec 005, mark dependencies
-- [ ] T028 [MANUAL] Benchmark with `hyperfine`: warm-path (<30ms, SC-001), cold-start (<500ms, SC-002), and verify byte-identical results between daemon and in-process (SC-004)
-- [ ] T029 Verify `csn mcp` still functions correctly after daemon code is added (SC-005). Run existing MCP integration test or manual MCP Inspector check
+- [x] T028 [MANUAL] Benchmark with `hyperfine`: warm-path (<30ms, SC-001), cold-start (<500ms, SC-002), and verify byte-identical results between daemon and in-process (SC-004)
+- [x] T029 Verify `csn mcp` still functions correctly after daemon code is added (SC-005). Run existing MCP integration test or manual MCP Inspector check
 
 ---
 
