@@ -76,12 +76,18 @@ fn is_toml_change(event: &notify::Event) -> bool {
 fn reload_sets(state: &AppState) {
     tracing::info!(dir = %state.sets_dir.display(), "reloading reference sets");
 
-    let mut engine = state.engine.lock().unwrap();
-    match load_all_reference_sets(&state.sets_dir, &mut engine, Some(&state.cache_dir)) {
+    // Load reference sets while holding the engine lock, then release it
+    // before MLP training so classify/embed/similarity requests aren't blocked.
+    let new_sets = {
+        let mut engine = state.engine.lock().unwrap();
+        load_all_reference_sets(&state.sets_dir, &mut engine, Some(&state.cache_dir))
+    };
+
+    match new_sets {
         Ok(new_sets) => {
             let count = new_sets.len();
 
-            // Retrain MLP models before swapping sets so reads aren't blocked during training
+            // MLP training runs without any locks held — requests continue serving.
             match train_models_at_startup(
                 &new_sets,
                 &state.cache_dir,
