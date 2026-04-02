@@ -20,8 +20,6 @@ struct MlpFileConfig {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 struct FileConfig {
-    host: Option<String>,
-    port: Option<u16>,
     model: Option<String>,
     log_level: Option<String>,
     sets_dir: Option<PathBuf>,
@@ -32,8 +30,6 @@ struct FileConfig {
 /// Resolved application configuration (all layers merged).
 #[derive(Debug, Clone)]
 pub struct AppConfig {
-    pub host: String,
-    pub port: u16,
     pub model: ModelChoice,
     pub log_level: String,
     pub sets_dir: PathBuf,
@@ -51,7 +47,6 @@ pub struct AppConfig {
 /// CLI overrides — fields provided via command-line flags.
 #[derive(Debug, Default)]
 pub struct CliOverrides {
-    pub port: Option<u16>,
     pub model: Option<ModelChoice>,
     pub log_level: Option<String>,
     pub sets_dir: Option<PathBuf>,
@@ -60,8 +55,6 @@ pub struct CliOverrides {
 }
 
 impl AppConfig {
-    const DEFAULT_HOST: &'static str = "127.0.0.1";
-    const DEFAULT_PORT: u16 = 9847;
     const DEFAULT_LOG_LEVEL: &'static str = "warn";
     const DEFAULT_MLP_FALLBACK: bool = false;
     const DEFAULT_MLP_LEARNING_RATE: f64 = 0.001;
@@ -73,17 +66,6 @@ impl AppConfig {
     pub fn load(overrides: CliOverrides) -> Result<Self> {
         let config_dir = Self::config_dir();
         let file_config = Self::load_file(&config_dir);
-
-        let host = std::env::var("CSN_HOST")
-            .ok()
-            .or(file_config.host)
-            .unwrap_or_else(|| Self::DEFAULT_HOST.to_string());
-
-        let port = overrides
-            .port
-            .or_else(|| std::env::var("CSN_PORT").ok()?.parse().ok())
-            .or(file_config.port)
-            .unwrap_or(Self::DEFAULT_PORT);
 
         let model = overrides
             .model
@@ -135,8 +117,6 @@ impl AppConfig {
         let mlp_patience = mlp_file.patience.unwrap_or(Self::DEFAULT_MLP_PATIENCE);
 
         Ok(Self {
-            host,
-            port,
             model,
             log_level,
             sets_dir,
@@ -209,15 +189,12 @@ mod tests {
 
     #[test]
     fn defaults_with_no_env() {
-        // Test that CLI overrides work without touching env vars
         let config = AppConfig::load(CliOverrides {
-            port: Some(9999),
             model: Some(ModelChoice::BGESmallENV15Q),
             log_level: Some("debug".to_string()),
             ..Default::default()
         })
         .unwrap();
-        assert_eq!(config.port, 9999);
         assert_eq!(config.model, ModelChoice::BGESmallENV15Q);
         assert_eq!(config.log_level, "debug");
     }
@@ -225,7 +202,6 @@ mod tests {
     #[test]
     fn cli_overrides_all_fields() {
         let config = AppConfig::load(CliOverrides {
-            port: Some(2222),
             model: Some(ModelChoice::AllMiniLML6V2),
             log_level: Some("info".to_string()),
             sets_dir: Some(PathBuf::from("/tmp/sets")),
@@ -233,19 +209,10 @@ mod tests {
             datasets_dir: Some(PathBuf::from("/tmp/datasets")),
         })
         .unwrap();
-        assert_eq!(config.port, 2222);
         assert_eq!(config.model, ModelChoice::AllMiniLML6V2);
         assert_eq!(config.log_level, "info");
         assert_eq!(config.sets_dir, PathBuf::from("/tmp/sets"));
         assert_eq!(config.cache_dir, PathBuf::from("/tmp/cache"));
-    }
-
-    #[test]
-    fn default_port_without_override() {
-        let config = AppConfig::load(CliOverrides::default()).unwrap();
-        // Port should be either 9847 (default) or whatever CSN_PORT is set to in env
-        // We can't assert exact value without controlling env, but we verify it loads
-        assert!(config.port > 0);
     }
 
     #[test]

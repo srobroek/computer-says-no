@@ -3,11 +3,11 @@ mod classifier;
 mod config;
 mod dataset;
 mod embedding_cache;
+#[allow(clippy::enum_variant_names)]
+mod mcp;
 mod mlp;
 mod model;
 mod reference_set;
-mod server;
-mod watcher;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -47,10 +47,6 @@ enum Command {
         /// Path to reference sets directory
         #[arg(long)]
         sets_dir: Option<PathBuf>,
-
-        /// Classify in-process without connecting to daemon
-        #[arg(long)]
-        standalone: bool,
     },
 
     /// Generate embedding vector for text
@@ -61,10 +57,6 @@ enum Command {
         /// Model to use
         #[arg(short, long)]
         model: Option<ModelChoice>,
-
-        /// Embed in-process without connecting to daemon
-        #[arg(long)]
-        standalone: bool,
     },
 
     /// Compute cosine similarity between two texts
@@ -78,33 +70,13 @@ enum Command {
         /// Model to use
         #[arg(short, long)]
         model: Option<ModelChoice>,
-
-        /// Compute in-process without connecting to daemon
-        #[arg(long)]
-        standalone: bool,
     },
 
     /// List available embedding models
     Models,
 
-    /// Start the daemon server
-    Serve {
-        /// Port to listen on
-        #[arg(short, long)]
-        port: Option<u16>,
-
-        /// Model to use
-        #[arg(short, long)]
-        model: Option<ModelChoice>,
-
-        /// Path to reference sets directory
-        #[arg(long)]
-        sets_dir: Option<PathBuf>,
-
-        /// Log level (trace, debug, info, warn, error)
-        #[arg(long)]
-        log_level: Option<String>,
-    },
+    /// Run as MCP server over stdio (for Claude Code, Cursor, etc.)
+    Mcp,
 
     /// Manage reference sets
     Sets {
@@ -203,7 +175,6 @@ fn main() -> Result<()> {
             json,
             model,
             sets_dir,
-            standalone,
         } => {
             let config = AppConfig::load(CliOverrides {
                 model,
@@ -211,71 +182,34 @@ fn main() -> Result<()> {
                 ..Default::default()
             })?;
             init_tracing(&config.log_level);
-
-            if standalone {
-                cmd_classify_standalone(&config, &text, &set, json)
-            } else {
-                cmd_classify_remote(&config, &text, &set, json)
-            }
+            cmd_classify(&config, &text, &set, json)
         }
 
-        Command::Embed {
-            text,
-            model,
-            standalone,
-        } => {
+        Command::Embed { text, model } => {
             let config = AppConfig::load(CliOverrides {
                 model,
                 ..Default::default()
             })?;
             init_tracing(&config.log_level);
-
-            if standalone {
-                cmd_embed_standalone(&config, &text)
-            } else {
-                cmd_embed_remote(&config, &text)
-            }
+            cmd_embed(&config, &text)
         }
 
-        Command::Similarity {
-            a,
-            b,
-            model,
-            standalone,
-        } => {
+        Command::Similarity { a, b, model } => {
             let config = AppConfig::load(CliOverrides {
                 model,
                 ..Default::default()
             })?;
             init_tracing(&config.log_level);
-
-            if standalone {
-                cmd_similarity_standalone(&config, &a, &b)
-            } else {
-                cmd_similarity_remote(&config, &a, &b)
-            }
-        }
-
-        Command::Serve {
-            port,
-            model,
-            sets_dir,
-            log_level,
-        } => {
-            let config = AppConfig::load(CliOverrides {
-                port,
-                model,
-                sets_dir,
-                log_level,
-                ..Default::default()
-            })?;
-            init_tracing(&config.log_level);
-
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(server::serve(&config))
+            cmd_similarity(&config, &a, &b)
         }
 
         Command::Models => cmd_models(),
+
+        Command::Mcp => {
+            let config = AppConfig::load(CliOverrides::default())?;
+            init_tracing(&config.log_level);
+            cmd_mcp(&config)
+        }
 
         Command::Sets { action } => match action {
             SetsAction::List { sets_dir } => {
@@ -352,101 +286,9 @@ fn init_tracing(log_level: &str) {
         .init();
 }
 
-// --- Remote (daemon) commands ---
+// --- In-process commands ---
 
-fn daemon_url(config: &AppConfig, path: &str) -> String {
-    format!("http://{}:{}{}", config.host, config.port, path)
-}
-
-fn check_daemon(config: &AppConfig) -> Result<reqwest::blocking::Client> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()?;
-
-    client
-        .get(daemon_url(config, "/health"))
-        .send()
-        .with_context(|| {
-            format!(
-                "daemon not reachable at {}:{}. Start it with `csn serve` or use --standalone",
-                config.host, config.port
-            )
-        })?;
-
-    Ok(client)
-}
-
-fn cmd_classify_remote(config: &AppConfig, text: &str, set_name: &str, json: bool) -> Result<()> {
-    let client = check_daemon(config)?;
-
-    let resp = client
-        .post(daemon_url(config, "/classify"))
-        .json(&serde_json::json!({"text": text, "reference_set": set_name}))
-        .send()?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body: serde_json::Value = resp.json().unwrap_or_default();
-        let msg = body["error"].as_str().unwrap_or("unknown error");
-        anyhow::bail!("classify failed ({}): {}", status, msg);
-    }
-
-    let result: classifier::ClassifyResult = resp.json()?;
-    print_classify_result(&result, json);
-    Ok(())
-}
-
-fn cmd_embed_remote(config: &AppConfig, text: &str) -> Result<()> {
-    let client = check_daemon(config)?;
-
-    let resp = client
-        .post(daemon_url(config, "/embed"))
-        .json(&serde_json::json!({"text": text}))
-        .send()?;
-
-    if !resp.status().is_success() {
-        let body: serde_json::Value = resp.json().unwrap_or_default();
-        anyhow::bail!(
-            "embed failed: {}",
-            body["error"].as_str().unwrap_or("unknown error")
-        );
-    }
-
-    let body: serde_json::Value = resp.json()?;
-    println!("{}", serde_json::to_string_pretty(&body)?);
-    Ok(())
-}
-
-fn cmd_similarity_remote(config: &AppConfig, a: &str, b: &str) -> Result<()> {
-    let client = check_daemon(config)?;
-
-    let resp = client
-        .post(daemon_url(config, "/similarity"))
-        .json(&serde_json::json!({"a": a, "b": b}))
-        .send()?;
-
-    if !resp.status().is_success() {
-        let body: serde_json::Value = resp.json().unwrap_or_default();
-        anyhow::bail!(
-            "similarity failed: {}",
-            body["error"].as_str().unwrap_or("unknown error")
-        );
-    }
-
-    let body: serde_json::Value = resp.json()?;
-    let sim = body["similarity"].as_f64().unwrap_or(0.0);
-    println!("{:.4}", sim);
-    Ok(())
-}
-
-// --- Standalone (in-process) commands ---
-
-fn cmd_classify_standalone(
-    config: &AppConfig,
-    text: &str,
-    set_name: &str,
-    json: bool,
-) -> Result<()> {
+fn cmd_classify(config: &AppConfig, text: &str, set_name: &str, json: bool) -> Result<()> {
     let sets_dir = config.resolve_sets_dir();
     let mut engine = EmbeddingEngine::new(config.model, Some(config.model_cache_dir()))?;
     let sets = load_all_reference_sets(&sets_dir, &mut engine, Some(&config.cache_dir))?;
@@ -463,8 +305,6 @@ fn cmd_classify_standalone(
             )
         })?;
 
-    // Train MLP for the reference set (or load from cache) so standalone
-    // classify uses the combined pipeline, same as the daemon.
     eprintln!("Loading MLP models (training or loading from cache)...");
     let trained_models = mlp::train_models_at_startup(
         &sets,
@@ -485,7 +325,7 @@ fn cmd_classify_standalone(
     Ok(())
 }
 
-fn cmd_embed_standalone(config: &AppConfig, text: &str) -> Result<()> {
+fn cmd_embed(config: &AppConfig, text: &str) -> Result<()> {
     let mut engine = EmbeddingEngine::new(config.model, Some(config.model_cache_dir()))?;
     let embedding = engine.embed_one(text)?;
     let output = serde_json::json!({
@@ -497,7 +337,7 @@ fn cmd_embed_standalone(config: &AppConfig, text: &str) -> Result<()> {
     Ok(())
 }
 
-fn cmd_similarity_standalone(config: &AppConfig, a: &str, b: &str) -> Result<()> {
+fn cmd_similarity(config: &AppConfig, a: &str, b: &str) -> Result<()> {
     let mut engine = EmbeddingEngine::new(config.model, Some(config.model_cache_dir()))?;
     let embeddings = engine.embed(&[a, b])?;
     let sim = cosine_similarity(&embeddings[0], &embeddings[1]);
@@ -505,7 +345,77 @@ fn cmd_similarity_standalone(config: &AppConfig, a: &str, b: &str) -> Result<()>
     Ok(())
 }
 
-// --- Local commands (no daemon needed) ---
+fn cmd_mcp(config: &AppConfig) -> Result<()> {
+    use rust_mcp_sdk::mcp_server::{McpServerOptions, ToMcpServerHandler, server_runtime};
+    use rust_mcp_sdk::schema::{
+        Implementation, InitializeResult, ProtocolVersion, ServerCapabilities,
+        ServerCapabilitiesTools,
+    };
+    use rust_mcp_sdk::{StdioTransport, TransportOptions};
+
+    eprintln!("Loading embedding model...");
+    let mut engine = EmbeddingEngine::new(config.model, Some(config.model_cache_dir()))?;
+
+    eprintln!("Loading reference sets...");
+    let sets_dir = config.resolve_sets_dir();
+    let sets = load_all_reference_sets(&sets_dir, &mut engine, Some(&config.cache_dir))?;
+    eprintln!("{} reference set(s) loaded", sets.len());
+
+    eprintln!("Training MLP models...");
+    let trained_models = mlp::train_models_at_startup(
+        &sets,
+        &config.cache_dir,
+        config.mlp_learning_rate,
+        config.mlp_weight_decay,
+        config.mlp_max_epochs,
+        config.mlp_patience,
+        config.mlp_fallback,
+    )?;
+    eprintln!("MLP ready ({} model(s))", trained_models.len());
+
+    let handler = mcp::McpHandler::new(engine, sets, trained_models, config.model);
+
+    let server_details = InitializeResult {
+        server_info: Implementation {
+            name: "csn".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
+            title: Some("Computer Says No".into()),
+            description: Some("Local embedding classifier for text classification".into()),
+            icons: vec![],
+            website_url: None,
+        },
+        capabilities: ServerCapabilities {
+            tools: Some(ServerCapabilitiesTools { list_changed: None }),
+            ..Default::default()
+        },
+        protocol_version: ProtocolVersion::V2025_11_25.into(),
+        instructions: None,
+        meta: None,
+    };
+
+    let transport = StdioTransport::new(TransportOptions::default())
+        .map_err(|e| anyhow::anyhow!("failed to create stdio transport: {e}"))?;
+
+    let server = server_runtime::create_server(McpServerOptions {
+        server_details,
+        transport,
+        handler: handler.to_mcp_server_handler(),
+        task_store: None,
+        client_task_store: None,
+        message_observer: None,
+    });
+
+    eprintln!("MCP server ready (stdio)");
+
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        use rust_mcp_sdk::McpServer;
+        server.start().await
+    })
+    .map_err(|e| anyhow::anyhow!("MCP server error: {e}"))
+}
+
+// --- Local commands ---
 
 fn cmd_models() -> Result<()> {
     println!("{:<30} {:>6}", "MODEL", "DIM");
