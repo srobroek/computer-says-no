@@ -3,6 +3,8 @@ mod classifier;
 mod config;
 mod dataset;
 mod embedding_cache;
+#[allow(clippy::enum_variant_names)]
+mod mcp;
 mod mlp;
 mod model;
 mod reference_set;
@@ -344,9 +346,73 @@ fn cmd_similarity(config: &AppConfig, a: &str, b: &str) -> Result<()> {
 }
 
 fn cmd_mcp(config: &AppConfig) -> Result<()> {
-    // TODO: implement in T007-T011
-    let _ = config;
-    anyhow::bail!("MCP server not yet implemented")
+    use rust_mcp_sdk::mcp_server::{McpServerOptions, ToMcpServerHandler, server_runtime};
+    use rust_mcp_sdk::schema::{
+        Implementation, InitializeResult, ProtocolVersion, ServerCapabilities,
+        ServerCapabilitiesTools,
+    };
+    use rust_mcp_sdk::{StdioTransport, TransportOptions};
+
+    eprintln!("Loading embedding model...");
+    let mut engine = EmbeddingEngine::new(config.model, Some(config.model_cache_dir()))?;
+
+    eprintln!("Loading reference sets...");
+    let sets_dir = config.resolve_sets_dir();
+    let sets = load_all_reference_sets(&sets_dir, &mut engine, Some(&config.cache_dir))?;
+    eprintln!("{} reference set(s) loaded", sets.len());
+
+    eprintln!("Training MLP models...");
+    let trained_models = mlp::train_models_at_startup(
+        &sets,
+        &config.cache_dir,
+        config.mlp_learning_rate,
+        config.mlp_weight_decay,
+        config.mlp_max_epochs,
+        config.mlp_patience,
+        config.mlp_fallback,
+    )?;
+    eprintln!("MLP ready ({} model(s))", trained_models.len());
+
+    let handler = mcp::McpHandler::new(engine, sets, trained_models, config.model);
+
+    let server_details = InitializeResult {
+        server_info: Implementation {
+            name: "csn".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
+            title: Some("Computer Says No".into()),
+            description: Some("Local embedding classifier for text classification".into()),
+            icons: vec![],
+            website_url: None,
+        },
+        capabilities: ServerCapabilities {
+            tools: Some(ServerCapabilitiesTools { list_changed: None }),
+            ..Default::default()
+        },
+        protocol_version: ProtocolVersion::V2025_11_25.into(),
+        instructions: None,
+        meta: None,
+    };
+
+    let transport = StdioTransport::new(TransportOptions::default())
+        .map_err(|e| anyhow::anyhow!("failed to create stdio transport: {e}"))?;
+
+    let server = server_runtime::create_server(McpServerOptions {
+        server_details,
+        transport,
+        handler: handler.to_mcp_server_handler(),
+        task_store: None,
+        client_task_store: None,
+        message_observer: None,
+    });
+
+    eprintln!("MCP server ready (stdio)");
+
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        use rust_mcp_sdk::McpServer;
+        server.start().await
+    })
+    .map_err(|e| anyhow::anyhow!("MCP server error: {e}"))
 }
 
 // --- Local commands ---
