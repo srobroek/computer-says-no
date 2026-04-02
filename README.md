@@ -28,27 +28,21 @@ csn classify "sounds good" --set corrections --json
 
 ## Installation
 
-### From crates.io (recommended)
+### Quick install (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/srobroek/computer-says-no/main/install.sh | bash
+```
+
+This installs the `csn` binary via `cargo install` and downloads the default reference sets to the correct platform directory. Requires Rust 1.92+.
+
+### Manual install
 
 ```fish
 cargo install computer-says-no
 ```
 
-This installs the `csn` binary to `~/.cargo/bin/`. Requires Rust 1.92+. The ONNX model (~500MB) downloads on first run.
-
-After installing, download the default reference sets:
-
-```fish
-# macOS
-mkdir -p ~/Library/Application\ Support/computer-says-no/reference-sets
-curl -o ~/Library/Application\ Support/computer-says-no/reference-sets/corrections.toml \
-  https://raw.githubusercontent.com/srobroek/computer-says-no/main/reference-sets/corrections.toml
-
-# Linux
-mkdir -p ~/.config/computer-says-no/reference-sets
-curl -o ~/.config/computer-says-no/reference-sets/corrections.toml \
-  https://raw.githubusercontent.com/srobroek/computer-says-no/main/reference-sets/corrections.toml
-```
+Then download reference sets (see [Reference set locations](#reference-set-locations) below).
 
 ### From GitHub releases
 
@@ -60,7 +54,7 @@ Download a precompiled binary for your platform from [Releases](https://github.c
 git clone https://github.com/srobroek/computer-says-no.git
 cd computer-says-no
 cargo build --release
-# Binary: target/release/csn
+# Binary: target/release/csn — reference sets in reference-sets/ (auto-detected)
 ```
 
 ### Verify
@@ -166,7 +160,48 @@ set -gx CSN_FRUSTRATION_THRESHOLD 0.90  # less sensitive
 
 ## Reference sets
 
-Reference sets are TOML files that define classification patterns. Place them in `reference-sets/` (shipped with the binary) or `~/.config/computer-says-no/reference-sets/` (user-defined).
+Reference sets are TOML files that define classification patterns. `csn` ships with a `corrections` set (1600+ phrases for correction/frustration/neutral detection).
+
+### Reference set locations
+
+`csn` searches for reference sets in this order:
+
+| Priority | Location | When to use |
+|----------|----------|-------------|
+| 1 | `--sets-dir` CLI flag | One-off testing |
+| 2 | `CSN_SETS_DIR` env var | CI, hooks |
+| 3 | `sets_dir` in config.toml | Permanent override |
+| 4 | Platform config dir (default) | Normal use |
+| 5 | Next to the binary | GitHub release downloads |
+| 6 | `./reference-sets/` in CWD | Development (source builds) |
+
+**Platform config directories** (via the `directories` crate):
+
+| Platform | Path |
+|----------|------|
+| macOS | `~/Library/Application Support/computer-says-no/reference-sets/` |
+| Linux | `~/.config/computer-says-no/reference-sets/` |
+| Windows | `%APPDATA%\computer-says-no\reference-sets\` |
+
+The install script handles this automatically. For manual install:
+
+```fish
+# macOS
+mkdir -p ~/Library/Application\ Support/computer-says-no/reference-sets
+curl -fsSL -o ~/Library/Application\ Support/computer-says-no/reference-sets/corrections.toml \
+  https://raw.githubusercontent.com/srobroek/computer-says-no/main/reference-sets/corrections.toml
+
+# Linux
+mkdir -p ~/.config/computer-says-no/reference-sets
+curl -fsSL -o ~/.config/computer-says-no/reference-sets/corrections.toml \
+  https://raw.githubusercontent.com/srobroek/computer-says-no/main/reference-sets/corrections.toml
+```
+
+### Creating a reference set
+
+1. Create a `.toml` file in your reference sets directory
+2. Classify against it: `csn classify "test" --set my-set --json`
+3. The MLP trains automatically on first use and caches weights
 
 ### Multi-category format (recommended)
 
@@ -336,7 +371,7 @@ Add to your MCP config:
 
 ## Configuration
 
-`~/.config/computer-says-no/config.toml`:
+Config file location matches the platform config directory (macOS: `~/Library/Application Support/computer-says-no/config.toml`, Linux: `~/.config/computer-says-no/config.toml`):
 
 ```toml
 model = "bge-small-en-v1.5-Q"
