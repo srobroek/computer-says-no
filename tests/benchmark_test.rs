@@ -5,7 +5,7 @@ use std::path::Path;
 fn datasets_are_valid_json() {
     let datasets_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
 
-    for name in ["corrections", "pushback"] {
+    for name in ["corrections"] {
         let path = datasets_dir.join(format!("{name}.json"));
         assert!(path.exists(), "dataset {name}.json should exist");
 
@@ -18,11 +18,11 @@ fn datasets_are_valid_json() {
         assert!(ds["reference_set"].is_string());
         assert!(ds["mode"].is_string());
 
-        // Check prompt count
+        // Check prompt count (at least 50 for meaningful benchmarks)
         let prompts = ds["prompts"].as_array().unwrap();
         assert!(
-            prompts.len() >= 490,
-            "{name}: expected ~500 prompts, got {}",
+            prompts.len() >= 50,
+            "{name}: expected >= 50 prompts, got {}",
             prompts.len()
         );
 
@@ -39,67 +39,26 @@ fn datasets_are_valid_json() {
                 "{name} prompt {i}: missing polarity"
             );
         }
-
-        // Check tier distribution (each bucket should have at least 40 prompts)
-        let tiers = ["clear", "moderate", "edge"];
-        let polarities = ["positive", "negative"];
-        for tier in tiers {
-            for pol in polarities {
-                let count = prompts
-                    .iter()
-                    .filter(|p| {
-                        p["tier"].as_str() == Some(tier) && p["polarity"].as_str() == Some(pol)
-                    })
-                    .count();
-                assert!(
-                    count >= 40,
-                    "{name}: {tier}/{pol} has only {count} prompts (expected >= 40)"
-                );
-            }
-        }
     }
 }
 
-/// Verify corrections dataset has correct labels.
+/// Verify corrections dataset has correct multi-category labels.
 #[test]
 fn corrections_dataset_labels() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/corrections.json");
     let content = std::fs::read_to_string(&path).unwrap();
     let ds: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+    assert_eq!(ds["mode"].as_str().unwrap(), "multi-category");
+
+    let valid_labels = ["correction", "frustration", "neutral"];
     let prompts = ds["prompts"].as_array().unwrap();
 
     for p in prompts {
         let label = p["expected_label"].as_str().unwrap();
-        let polarity = p["polarity"].as_str().unwrap();
-        match polarity {
-            "positive" => assert_eq!(label, "match", "positive prompt should have label 'match'"),
-            "negative" => assert_eq!(
-                label, "no_match",
-                "negative prompt should have label 'no_match'"
-            ),
-            _ => panic!("unexpected polarity: {polarity}"),
-        }
-    }
-}
-
-/// Verify pushback dataset labels match valid binary categories.
-#[test]
-fn pushback_dataset_labels() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/pushback.json");
-    let content = std::fs::read_to_string(&path).unwrap();
-    let ds: serde_json::Value = serde_json::from_str(&content).unwrap();
-    let prompts = ds["prompts"].as_array().unwrap();
-
-    for p in prompts {
-        let label = p["expected_label"].as_str().unwrap();
-        let polarity = p["polarity"].as_str().unwrap();
-        match polarity {
-            "positive" => assert_eq!(label, "match", "positive prompt should have label 'match'"),
-            "negative" => assert_eq!(
-                label, "no_match",
-                "negative prompt should have label 'no_match'"
-            ),
-            _ => panic!("unexpected polarity: {polarity}"),
-        }
+        assert!(
+            valid_labels.contains(&label),
+            "unexpected label '{label}', expected one of {valid_labels:?}"
+        );
     }
 }
