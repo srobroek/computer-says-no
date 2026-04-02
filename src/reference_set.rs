@@ -387,4 +387,58 @@ phrases = ["fix bug", "resolve"]
         assert_eq!(cats.len(), 2);
         assert!(cats.contains_key("feat"));
     }
+
+    #[test]
+    fn corrections_toml_parses_as_multi_category() {
+        let content = include_str!("../reference-sets/corrections.toml");
+        let file: ReferenceSetFile = toml::from_str(content).unwrap();
+        assert_eq!(file.metadata.mode, Mode::MultiCategory);
+        assert_eq!(file.metadata.name, "corrections");
+
+        let cats = file.categories.unwrap();
+        assert!(
+            cats.contains_key("correction"),
+            "missing 'correction' category"
+        );
+        assert!(
+            cats.contains_key("frustration"),
+            "missing 'frustration' category"
+        );
+        assert!(cats.contains_key("neutral"), "missing 'neutral' category");
+
+        // FR-002: each category must have at least 2 phrases.
+        for (name, cat) in &cats {
+            assert!(
+                cat.phrases.len() >= 2,
+                "category '{name}' has {} phrases, need ≥2",
+                cat.phrases.len()
+            );
+        }
+
+        // Total must be at least 4.
+        let total: usize = cats.values().map(|c| c.phrases.len()).sum();
+        assert!(total >= 4, "total phrases = {total}, need ≥4");
+    }
+
+    #[test]
+    fn corrections_toml_no_duplicate_phrases() {
+        let content = include_str!("../reference-sets/corrections.toml");
+        let file: ReferenceSetFile = toml::from_str(content).unwrap();
+        let cats = file.categories.unwrap();
+
+        let mut all_phrases: Vec<&str> = Vec::new();
+        for cat in cats.values() {
+            for phrase in &cat.phrases {
+                all_phrases.push(phrase);
+            }
+        }
+
+        let mut seen = std::collections::HashSet::new();
+        for phrase in &all_phrases {
+            assert!(
+                seen.insert(*phrase),
+                "duplicate phrase across categories: '{phrase}'"
+            );
+        }
+    }
 }

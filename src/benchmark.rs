@@ -162,7 +162,7 @@ pub fn calibrate_adaptive_threshold(
 
     let mut pos_scores: Vec<f32> = Vec::new();
     for prompt in negative_prompts {
-        if let Ok(result) = classifier::classify_text(engine, &prompt.text, ref_set, None) {
+        if let Ok(result) = classifier::classify_text(engine, &prompt.text, ref_set, None, None) {
             match &result {
                 classifier::ClassifyResult::Binary(r) => pos_scores.push(r.scores.positive),
                 classifier::ClassifyResult::MultiCategory(r) => pos_scores.push(r.confidence),
@@ -230,7 +230,7 @@ pub fn compare_strategies(
         .prompts
         .iter()
         .filter_map(|p| {
-            classifier::classify_text(engine, &p.text, ref_set, None)
+            classifier::classify_text(engine, &p.text, ref_set, None, None)
                 .ok()
                 .map(|r| (p, r))
         })
@@ -387,7 +387,7 @@ fn measure_dataset(
     // Warm-up
     for _ in 0..warmup {
         if let Some(prompt) = ds.prompts.first() {
-            let _ = classifier::classify_text(engine, &prompt.text, ref_set, None);
+            let _ = classifier::classify_text(engine, &prompt.text, ref_set, None, None);
         }
     }
 
@@ -399,7 +399,7 @@ fn measure_dataset(
         let mut correct = false;
         for i in 0..iterations {
             let start = Instant::now();
-            let result = classifier::classify_text(engine, &prompt.text, ref_set, None)
+            let result = classifier::classify_text(engine, &prompt.text, ref_set, None, None)
                 .with_context(|| format!("classifying '{}' with {}", prompt.text, model))?;
             all_latencies.push(start.elapsed());
 

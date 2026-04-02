@@ -10,7 +10,7 @@ use tokio::sync::broadcast;
 
 use crate::classifier;
 use crate::config::AppConfig;
-use crate::mlp::TrainedModel;
+use crate::mlp::{TrainedModel, TrainedMultiCatModel};
 use crate::model::{EmbeddingEngine, ModelChoice, cosine_similarity};
 use crate::reference_set::ReferenceSet;
 
@@ -87,6 +87,7 @@ struct DaemonHandler {
     engine: Mutex<EmbeddingEngine>,
     reference_sets: Vec<ReferenceSet>,
     trained_models: Mutex<Vec<TrainedModel>>,
+    trained_multi_models: Mutex<Vec<TrainedMultiCatModel>>,
     model_choice: ModelChoice,
 }
 
@@ -95,12 +96,14 @@ impl DaemonHandler {
         engine: EmbeddingEngine,
         reference_sets: Vec<ReferenceSet>,
         trained_models: Vec<TrainedModel>,
+        trained_multi_models: Vec<TrainedMultiCatModel>,
         model_choice: ModelChoice,
     ) -> Self {
         Self {
             engine: Mutex::new(engine),
             reference_sets,
             trained_models: Mutex::new(trained_models),
+            trained_multi_models: Mutex::new(trained_multi_models),
             model_choice,
         }
     }
@@ -152,12 +155,21 @@ impl DaemonHandler {
             .iter()
             .find(|m| m.reference_set_name == set_name);
 
+        let trained_multi_models = match self.trained_multi_models.lock() {
+            Ok(m) => m,
+            Err(_) => return DaemonResponse::error("multi models lock poisoned"),
+        };
+        let trained_multi_model = trained_multi_models
+            .iter()
+            .find(|m| m.reference_set_name == set_name);
+
         let mut engine = match self.engine.lock() {
             Ok(e) => e,
             Err(_) => return DaemonResponse::error("engine lock poisoned"),
         };
 
-        match classifier::classify_text(&mut engine, text, set, trained_model) {
+        match classifier::classify_text(&mut engine, text, set, trained_model, trained_multi_model)
+        {
             Ok(result) => match serde_json::to_value(&result) {
                 Ok(v) => DaemonResponse::success(v),
                 Err(e) => DaemonResponse::error(format!("serialization error: {e}")),
@@ -260,12 +272,26 @@ pub fn run_daemon(config: &AppConfig) -> Result<()> {
         config.mlp_patience,
         config.mlp_fallback,
     )?;
-    eprintln!("MLP ready ({} model(s))", trained_models.len());
+    let trained_multi_models = mlp::train_multi_models_at_startup(
+        &sets,
+        &config.cache_dir,
+        config.mlp_learning_rate,
+        config.mlp_weight_decay,
+        config.mlp_max_epochs,
+        config.mlp_patience,
+        config.mlp_fallback,
+    )?;
+    eprintln!(
+        "MLP ready ({} binary, {} multi-cat)",
+        trained_models.len(),
+        trained_multi_models.len()
+    );
 
     let handler = Arc::new(DaemonHandler::new(
         engine,
         sets,
         trained_models,
+        trained_multi_models,
         config.model,
     ));
     let tracker = IdleTracker::new(config.idle_timeout);

@@ -58,7 +58,7 @@ just clean        # cargo clean
 
 ## Testing
 
-- Unit tests: `cargo test --bin csn` (55 tests: config, model, classifier, reference_set, embedding_cache, benchmark, dataset, mlp, mcp, daemon, client)
+- Unit tests: `cargo test --bin csn` (68 tests: config, model, classifier, reference_set, embedding_cache, benchmark, dataset, mlp, mcp, daemon, client)
 - Integration: `cargo test --test integration_test -- --ignored` (spawns `csn mcp`, tests MCP protocol via stdio — requires model download)
 - Benchmark tests: `cargo test --test benchmark_test` (validates dataset structure, labels, tier distribution)
 - Benchmarks: `just bench` (runs `csn benchmark run` — requires model download, not available in CI/sandbox)
@@ -74,8 +74,11 @@ just clean        # cargo clean
 - Daemon files in `~/.cache/computer-says-no/` (csn.sock, csn.pid, csn.lock) (005-lazy-daemon)
 - unicode-normalization 0.1, std::hash for character n-gram feature hashing (007-char-ngram-features)
 - MLP input: 643-dim (384 embedding + 3 cosine + 256 char n-grams), cache key versioned v2-char256 (007-char-ngram-features)
+- Multi-category MLP: softmax/cross-entropy, per-category cosine features (N*3), v3-multicat cache prefix (008-mlp-multi-category)
+- corrections.toml: multi-category (correction/frustration/neutral), hook fires per-category prompts (008-mlp-multi-category)
 
 ## Recent Changes
+- 008-mlp-multi-category: Multi-category MLP (softmax/CE) — corrections.toml restructured to correction/frustration/neutral, per-category hook prompts, 68 tests
 - 007-char-ngram-features: Character n-gram features for typo robustness — 256-dim feature hashing, MLP input 643-dim, 55 tests
 - 005-lazy-daemon: Lazy auto-starting background daemon — unix socket, idle timeout, auto-spawn, `csn stop`
 - 004-mcp-sse: MCP stdio server — 4 tools (classify, list_sets, embed, similarity), removed REST daemon/watcher/standalone
