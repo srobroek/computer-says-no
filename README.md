@@ -1,12 +1,21 @@
 # Computer Says No (`csn`)
 
-Local embedding classifier for real-time text classification. Built for AI agent hooks — classify user messages for frustration, corrections, or any custom pattern in under 5ms.
+Classify text in under 5ms — locally, with no LLM calls. A single binary that runs on every user message.
+
+## Why csn
+
+| Problem | csn's approach |
+|---------|---------------|
+| LLM-based classification costs $0.01+ per call and adds 500ms+ latency | Local ONNX embedding + MLP: **~5ms**, zero API cost |
+| Cloud classifiers need network access and API keys | Single binary, runs offline, no accounts |
+| Regex/keyword matching can't handle typos, sarcasm, or paraphrasing | Embedding similarity + neural network: handles "wtf", "what the fuck", and "what in the actual fuck" identically |
+| Setting up ML pipelines requires Python, pip, model servers | `cargo install computer-says-no` — one command, one binary, no runtime deps |
+
+**Built for AI coding agent hooks**: Classify every user message for frustration, corrections, or any custom pattern. Works with any agent that supports hooks — Claude Code, Cursor, Windsurf, Codex, or your own tooling.
 
 ## What it does
 
 `csn` embeds text using ONNX models (via fastembed) and classifies it against reference sets of example phrases. An MLP neural network with character n-gram features provides typo-robust classification with per-category confidence scores.
-
-**Primary use case**: A Claude Code `UserPromptSubmit` hook that detects user frustration and corrections on every message, prompting the agent to reflect, acknowledge, and course-correct.
 
 ## Quick start
 
@@ -82,46 +91,33 @@ User message → csn classify → daemon (warm, ~5ms) or in-process (cold, ~370m
 - **MCP server**: `csn mcp` — stdio transport for Claude Code/Cursor agent tools
 - **Daemon**: Unix socket at `~/.cache/computer-says-no/csn.sock` — auto-starts on first CLI call, self-exits after 5 min idle
 
-## Hook setup (Claude Code)
+## Hook setup
 
-The hook classifies every user message and provides category-tailored feedback to the agent.
+The hook classifies every user message and provides category-tailored feedback to the agent. Works with any coding agent that supports shell hooks.
 
 ### 1. Install csn
 
-```fish
-cargo install computer-says-no
+```bash
+curl -fsSL https://raw.githubusercontent.com/srobroek/computer-says-no/main/install.sh | bash
 ```
 
-### 2. Add the hook to your project
+### 2. Integration
 
-Download the hook script from the repository:
+The core pattern: pipe the user message through `csn classify --json`, check the category, and inject feedback into the agent's context.
 
-```fish
+<details>
+<summary><strong>Claude Code</strong></summary>
+
+Download the hook and register it:
+
+```bash
 mkdir -p .claude/hooks
-curl -o .claude/hooks/user-frustration-check.sh \
+curl -fsSL -o .claude/hooks/user-frustration-check.sh \
   https://raw.githubusercontent.com/srobroek/computer-says-no/main/.claude/hooks/user-frustration-check.sh
 chmod +x .claude/hooks/user-frustration-check.sh
 ```
 
-### 3. Edit the hook paths
-
-Open `.claude/hooks/user-frustration-check.sh` and update the paths. If `csn` is on your PATH:
-
-```bash
-CSN="csn"
-SETS_DIR="${CSN_SETS_DIR:-}"  # empty = uses default ~/.config/computer-says-no/reference-sets/
-```
-
-Or point to a specific install:
-
-```bash
-CSN="${CSN_BIN:-$HOME/.cargo/bin/csn}"
-SETS_DIR="${CSN_SETS_DIR:-/path/to/reference-sets}"
-```
-
-### 4. Register the hook
-
-Add to `.claude/settings.json` (project or global):
+Add to `.claude/settings.json`:
 
 ```json
 {
@@ -140,23 +136,61 @@ Add to `.claude/settings.json` (project or global):
   }
 }
 ```
+</details>
 
-### 5. Configure threshold (optional)
+<details>
+<summary><strong>Cursor</strong></summary>
+
+Add a rule in `.cursorrules` that invokes csn:
+
+```
+Before responding to user messages, classify the input:
+Run: csn classify "<user_message>" --set corrections --json
+If category is "correction": acknowledge the mistake and adjust.
+If category is "frustration": reflect on what went wrong, de-escalate.
+```
+
+Or use csn as an MCP server in Cursor's MCP config for tool-based classification.
+</details>
+
+<details>
+<summary><strong>Any agent with shell hooks</strong></summary>
+
+The basic pattern for any hook system:
+
+```bash
+#!/usr/bin/env bash
+USER_MESSAGE="$1"
+RESULT=$(csn classify "$USER_MESSAGE" --set corrections --json 2>/dev/null)
+CATEGORY=$(echo "$RESULT" | jq -r '.category // empty')
+CONFIDENCE=$(echo "$RESULT" | jq -r '.confidence')
+
+case "$CATEGORY" in
+  correction) echo "User is correcting you. Acknowledge and fix." ;;
+  frustration) echo "User is frustrated. Reflect on what went wrong." ;;
+  *) ;; # neutral — no action
+esac
+```
+
+Adapt the output format to your agent's hook protocol.
+</details>
+
+### 3. Configure threshold (optional)
 
 Default: 80% confidence. Adjust via `CSN_FRUSTRATION_THRESHOLD`:
 
-```fish
-set -gx CSN_FRUSTRATION_THRESHOLD 0.75  # more sensitive
-set -gx CSN_FRUSTRATION_THRESHOLD 0.90  # less sensitive
+```bash
+export CSN_FRUSTRATION_THRESHOLD=0.60  # more sensitive (recommended for multi-category)
+export CSN_FRUSTRATION_THRESHOLD=0.90  # less sensitive
 ```
 
 ### What the hook detects
 
-| Category | Examples | Hook behavior |
-|----------|----------|---------------|
+| Category | Examples | Suggested behavior |
+|----------|----------|--------------------|
 | **Correction** | "wrong file", "revert that", "not what I asked" | Acknowledge mistake, confirm understanding, adjust |
 | **Frustration** | "wtf", "are you kidding me", "I give up" | Reflect on what went wrong, de-escalate, save lesson |
-| **Neutral** | "sounds good", "add error handling", "how does this work?" | Hook does not fire |
+| **Neutral** | "sounds good", "add error handling", "how does this work?" | No action needed |
 
 ## Reference sets
 
@@ -289,25 +323,31 @@ Use **intent** as the guide:
 
 ## Datasets and benchmarking
 
-### Generate scaffold datasets
+### Dataset format
 
-```fish
-csn benchmark generate-datasets
-# Creates JSON scaffolds in ~/.config/computer-says-no/datasets/
-```
-
-Fill scaffolds with diverse prompts (aim for 500 per dataset). Include easy, medium, and hard tiers:
+Datasets are JSON files in `datasets/` with labeled prompts:
 
 ```json
 {
   "name": "corrections",
   "reference_set": "corrections",
+  "mode": "multi-category",
   "prompts": [
-    {"text": "that's wrong revert it", "expected_match": true, "tier": "easy"},
-    {"text": "hmm not quite", "expected_match": true, "tier": "hard"},
-    {"text": "sounds good ship it", "expected_match": false, "tier": "easy"}
+    {"text": "wrong file, use auth.rs", "expected_label": "correction", "tier": "clear", "polarity": "positive"},
+    {"text": "are you kidding me", "expected_label": "frustration", "tier": "clear", "polarity": "positive"},
+    {"text": "looks good ship it", "expected_label": "neutral", "tier": "clear", "polarity": "positive"},
+    {"text": "hmm not quite", "expected_label": "correction", "tier": "edge", "polarity": "positive"}
   ]
 }
+```
+
+For multi-category sets, `expected_label` is the category name. Tiers: `clear` (obvious), `moderate` (requires context), `edge` (ambiguous).
+
+### Generate scaffolds
+
+```fish
+csn benchmark generate-datasets
+# Creates JSON scaffolds from your reference sets
 ```
 
 ### Run benchmarks
@@ -318,6 +358,17 @@ csn benchmark run --model bge-small-en-v1.5-Q              # specific model
 csn benchmark run --json --output results.json             # save results
 csn benchmark run --compare old-results.json               # compare runs
 csn benchmark compare-strategies --dataset corrections     # strategy comparison
+```
+
+### Current results
+
+```
+corrections (62 prompts, 3 categories)
++---------------------+----------+----------+----------+
+| Model               | Accuracy | Edge Acc | p50 (ms) |
++=======================================================+
+| bge-small-en-v1.5-Q | 82.3%    | 50.0%    | 14.8     |
++---------------------+----------+----------+----------+
 ```
 
 ### Dataset recommendations
@@ -341,13 +392,13 @@ csn benchmark compare-strategies --dataset corrections     # strategy comparison
 | `embed` | Generate embedding vector |
 | `similarity` | Cosine similarity between two texts |
 
-Add to your MCP config:
+Add to your agent's MCP config (Claude Code, Cursor, or any MCP-compatible client):
 
 ```json
 {
   "mcpServers": {
     "csn": {
-      "command": "/path/to/csn",
+      "command": "csn",
       "args": ["mcp"]
     }
   }
