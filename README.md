@@ -285,17 +285,9 @@ Classify against it: `csn classify "test" --set my-classifier --json`. The MLP t
 - **Cover vocabulary range.** Include formal ("that is incorrect"), informal ("nah"), profane ("wtf"), and abbreviated ("no") variants.
 - **Use intent for boundaries.** Correction = directive ("wrong file"). Frustration = emotional ("I give up"). Sarcasm = classify by the underlying intent.
 
-### Dataset ideas
+### Beyond frustration detection
 
-| Use case | Categories |
-|----------|-----------|
-| Agent corrections/frustration | `correction`, `frustration`, `neutral` (shipped) |
-| Customer support triage | `urgent`, `complaint`, `question`, `feedback` |
-| Code review signals | `bug`, `style`, `security`, `praise`, `question` |
-| Meeting intent | `action_item`, `decision`, `question`, `aside` |
-| Sentiment | `positive`, `negative` (binary) |
-| Sales signals | `interest`, `objection`, `question`, `ready_to_buy` |
-| Content moderation | `toxic`, `spam`, `off_topic`, `acceptable` |
+`csn` is a general-purpose text classifier — not limited to frustration detection. Any categorization problem where you can define example phrases works: binary (match/no-match) or multi-category (N categories with softmax probabilities). Define your categories in a TOML file, provide training phrases, and the MLP trains automatically.
 
 ## Benchmarks
 
