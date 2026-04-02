@@ -11,27 +11,44 @@ Local embedding classifier for real-time text classification. Built for AI agent
 ## Quick start
 
 ```fish
-# Build
-cargo build --release
+cargo install computer-says-no
 
 # Classify text (multi-category)
-./target/release/csn classify "what the fuck" --set corrections --json
+csn classify "what the fuck" --set corrections --json
 # → {"category": "frustration", "confidence": 0.99, "all_scores": [...]}
 
-./target/release/csn classify "wrong file" --set corrections --json
+csn classify "wrong file" --set corrections --json
 # → {"category": "correction", "confidence": 0.88, "all_scores": [...]}
 
-./target/release/csn classify "sounds good" --set corrections --json
+csn classify "sounds good" --set corrections --json
 # → {"category": "neutral", "confidence": 0.95, "all_scores": [...]}
 
-# First call trains the MLP (~10s). Subsequent calls: ~5ms via background daemon.
+# First call downloads the model + trains MLP (~10s). Subsequent calls: ~5ms.
 ```
 
 ## Installation
 
-### From source (recommended)
+### From crates.io (recommended)
 
-**Prerequisites**: Rust 1.92+ (2024 edition), ~500MB disk for ONNX model cache.
+```fish
+cargo install computer-says-no
+```
+
+This installs the `csn` binary to `~/.cargo/bin/`. Requires Rust 1.92+. The ONNX model (~500MB) downloads on first run.
+
+After installing, copy the default reference sets:
+
+```fish
+mkdir -p ~/.config/computer-says-no/reference-sets
+curl -o ~/.config/computer-says-no/reference-sets/corrections.toml \
+  https://raw.githubusercontent.com/srobroek/computer-says-no/main/reference-sets/corrections.toml
+```
+
+### From GitHub releases
+
+Download a precompiled binary from [Releases](https://github.com/srobroek/computer-says-no/releases). No build tools needed — single binary, models cached locally on first run.
+
+### From source
 
 ```fish
 git clone https://github.com/srobroek/computer-says-no.git
@@ -39,18 +56,6 @@ cd computer-says-no
 cargo build --release
 # Binary: target/release/csn
 ```
-
-### Install to PATH
-
-```fish
-cargo install --path .
-# or copy manually:
-cp target/release/csn ~/.local/bin/
-```
-
-### From GitHub releases
-
-Download the latest binary for your platform from [Releases](https://github.com/srobroek/computer-says-no/releases). No runtime dependencies — single binary, models cached locally on first run.
 
 ### Verify
 
@@ -81,35 +86,37 @@ User message → csn classify → daemon (warm, ~5ms) or in-process (cold, ~370m
 
 The hook classifies every user message and provides category-tailored feedback to the agent.
 
-### 1. Build csn
+### 1. Install csn
 
 ```fish
-cd /path/to/computer-says-no
-cargo build --release
+cargo install computer-says-no
 ```
 
 ### 2. Add the hook to your project
 
+Download the hook script from the repository:
+
 ```fish
 mkdir -p .claude/hooks
-cp /path/to/computer-says-no/.claude/hooks/user-frustration-check.sh .claude/hooks/
+curl -o .claude/hooks/user-frustration-check.sh \
+  https://raw.githubusercontent.com/srobroek/computer-says-no/main/.claude/hooks/user-frustration-check.sh
 chmod +x .claude/hooks/user-frustration-check.sh
 ```
 
 ### 3. Edit the hook paths
 
-Open `.claude/hooks/user-frustration-check.sh` and update the paths to point to where you built csn:
+Open `.claude/hooks/user-frustration-check.sh` and update the paths. If `csn` is on your PATH:
 
 ```bash
-CSN="/path/to/computer-says-no/target/release/csn"
-SETS_DIR="/path/to/computer-says-no/reference-sets"
+CSN="csn"
+SETS_DIR="${CSN_SETS_DIR:-}"  # empty = uses default ~/.config/computer-says-no/reference-sets/
 ```
 
-Or use environment variables:
+Or point to a specific install:
 
 ```bash
-CSN="${CSN_BIN:-/path/to/computer-says-no/target/release/csn}"
-SETS_DIR="${CSN_SETS_DIR:-/path/to/computer-says-no/reference-sets}"
+CSN="${CSN_BIN:-$HOME/.cargo/bin/csn}"
+SETS_DIR="${CSN_SETS_DIR:-/path/to/reference-sets}"
 ```
 
 ### 4. Register the hook
