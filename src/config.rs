@@ -16,6 +16,13 @@ struct MlpFileConfig {
     patience: Option<usize>,
 }
 
+/// On-disk TOML `[daemon]` section.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct DaemonFileConfig {
+    idle_timeout: Option<u64>,
+}
+
 /// On-disk TOML config structure (~/.config/computer-says-no/config.toml).
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
@@ -25,6 +32,7 @@ struct FileConfig {
     sets_dir: Option<PathBuf>,
     cache_dir: Option<PathBuf>,
     mlp: Option<MlpFileConfig>,
+    daemon: Option<DaemonFileConfig>,
 }
 
 /// Resolved application configuration (all layers merged).
@@ -42,6 +50,7 @@ pub struct AppConfig {
     pub mlp_weight_decay: f64,
     pub mlp_max_epochs: usize,
     pub mlp_patience: usize,
+    pub idle_timeout: u64,
 }
 
 /// CLI overrides — fields provided via command-line flags.
@@ -61,6 +70,7 @@ impl AppConfig {
     const DEFAULT_MLP_WEIGHT_DECAY: f64 = 0.001;
     const DEFAULT_MLP_MAX_EPOCHS: usize = 500;
     const DEFAULT_MLP_PATIENCE: usize = 10;
+    const DEFAULT_IDLE_TIMEOUT: u64 = 300; // 5 minutes
 
     /// Load config with 3-layer precedence: CLI > env > TOML file > defaults.
     pub fn load(overrides: CliOverrides) -> Result<Self> {
@@ -116,6 +126,13 @@ impl AppConfig {
 
         let mlp_patience = mlp_file.patience.unwrap_or(Self::DEFAULT_MLP_PATIENCE);
 
+        let daemon_file = file_config.daemon.unwrap_or_default();
+        let idle_timeout = std::env::var("CSN_IDLE_TIMEOUT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .or(daemon_file.idle_timeout)
+            .unwrap_or(Self::DEFAULT_IDLE_TIMEOUT);
+
         Ok(Self {
             model,
             log_level,
@@ -128,6 +145,7 @@ impl AppConfig {
             mlp_weight_decay,
             mlp_max_epochs,
             mlp_patience,
+            idle_timeout,
         })
     }
 
@@ -178,6 +196,21 @@ impl AppConfig {
     /// Get the model cache directory for a specific model.
     pub fn model_cache_dir(&self) -> PathBuf {
         self.cache_dir.join(self.model.as_str())
+    }
+
+    /// Unix socket path for the background daemon.
+    pub fn socket_path(&self) -> PathBuf {
+        self.cache_dir.join("csn.sock")
+    }
+
+    /// PID file path for the background daemon.
+    pub fn pid_path(&self) -> PathBuf {
+        self.cache_dir.join("csn.pid")
+    }
+
+    /// Lock file path for daemon spawn coordination.
+    pub fn lock_path(&self) -> PathBuf {
+        self.cache_dir.join("csn.lock")
     }
 }
 
