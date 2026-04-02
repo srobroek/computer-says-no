@@ -318,7 +318,7 @@ pub fn load_weights<B: Backend>(
 ///
 /// On convergence failure, behavior depends on `fallback`: when `true`, a
 /// warning is logged and the set is skipped; when `false`, an error is returned
-/// and the daemon should refuse to start.
+/// and startup should be aborted.
 #[allow(clippy::too_many_arguments)]
 pub fn train_models_at_startup(
     reference_sets: &[ReferenceSet],

@@ -83,13 +83,11 @@ The existing benchmark harness (`csn benchmark run`) can evaluate the combined p
 
 ---
 
-### User Story 5 — Hot-Reload Retrains MLP (Priority: P3)
+### User Story 5 — Hot-Reload Retrains MLP (Priority: P3) *SUPERSEDED by spec 004*
 
-When the file watcher detects a reference set change at runtime, the MLP model retrains automatically without requiring a daemon restart.
+~~When the file watcher detects a reference set change at runtime, the MLP model retrains automatically without requiring a daemon restart.~~
 
-**Why this priority**: Nice-to-have for development workflow. Users can iterate on reference set phrases and see combined pipeline results without restarting.
-
-**Independent Test**: With the daemon running, modify a reference set TOML file. Verify logs show MLP retraining triggered, then issue a `/classify` request and confirm the model reflects the updated phrases.
+*Superseded: spec 004 removed the file watcher and daemon. Reference sets load at process startup. MCP clients restart the process to pick up changes.*
 
 **Acceptance Scenarios**:
 
@@ -110,7 +108,7 @@ When the file watcher detects a reference set change at runtime, the MLP model r
 ### Functional Requirements
 
 - **FR-001**: System MUST automatically use the combined pipeline (embedding + cosine features → MLP) for binary reference sets that have a trained MLP model, with no API changes. The response shape (`is_match`, `confidence`, `top_phrase`, `scores`) MUST remain unchanged. When MLP is active, `confidence` MUST be the MLP sigmoid probability (0.0-1.0) and `scores.positive`/`scores.negative` MUST remain as raw cosine similarity values.
-- **FR-002**: System MUST train the MLP classifier automatically at daemon startup and standalone classify invocation from reference set positive and negative phrase embeddings.
+- **FR-002**: System MUST train the MLP classifier automatically at process startup (MCP server or CLI invocation) from reference set positive and negative phrase embeddings.
 - **FR-003**: System MUST use a 2-layer architecture with combined input: embedding concatenated with cosine features (max positive similarity, max negative similarity, margin) = embedding_dim + 3 input (computed at runtime from the embedding model's output dimension) → hidden layer 1 (256 units, ReLU) → hidden layer 2 (128 units, ReLU) → output (1 unit, sigmoid).
 - **FR-004**: System MUST cache trained model weights to disk, keyed by a content hash of the reference set phrases.
 - **FR-005**: System MUST invalidate the weight cache when reference set content changes (phrases added, removed, or modified).
@@ -118,7 +116,7 @@ When the file watcher detects a reference set change at runtime, the MLP model r
 - **FR-007**: System MUST skip MLP training when the total phrase count (positive + negative) is below a minimum viable threshold of 4 phrases.
 - **FR-008**: System MUST fall back to pure cosine classification for multi-category reference sets (MLP applies only to binary sets).
 - **FR-009**: System MUST integrate the combined pipeline as a strategy in the existing benchmark harness for accuracy comparison against pure cosine.
-- **FR-010**: System MUST retrain the MLP when the file watcher detects reference set changes at runtime, without blocking ongoing classification requests.
+- **FR-010**: ~~System MUST retrain the MLP when the file watcher detects reference set changes at runtime, without blocking ongoing classification requests.~~ *SUPERSEDED by spec 004: file watcher removed. Reference sets loaded once at startup; MCP clients restart the process to pick up changes.*
 - **FR-011**: System MUST use Adam optimization with L2 regularization and early stopping during training.
 - **FR-012**: System MUST refuse to start if MLP training fails to converge (loss does not decrease after max epochs). A configuration option MUST allow the user to override this to fall back to pure cosine instead.
 

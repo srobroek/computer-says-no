@@ -1,202 +1,224 @@
-use std::net::TcpListener;
+use std::io::{BufRead, BufReader, Write};
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
-fn available_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.local_addr().unwrap().port()
-}
-
-fn wait_for_server(port: u16, timeout: Duration) -> reqwest::blocking::Client {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(2))
-        .build()
-        .unwrap();
-
-    let start = std::time::Instant::now();
-    let url = format!("http://127.0.0.1:{}/health", port);
-
-    while start.elapsed() < timeout {
-        if client.get(&url).send().is_ok() {
-            return client;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-
-    panic!("server did not start within {:?}", timeout);
-}
-
-#[test]
-fn daemon_rest_api_contract() {
-    let port = available_port();
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let sets_dir = format!("{}/reference-sets", manifest_dir);
-    let bin = format!("{}/target/debug/csn", manifest_dir);
-
-    // Start daemon as subprocess with smallest model
-    let mut child = std::process::Command::new(&bin)
-        .args([
-            "serve",
-            "--port",
-            &port.to_string(),
-            "--sets-dir",
-            &sets_dir,
-            "--model",
-            "bge-small-en-v1.5-Q",
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .expect("failed to start daemon — run `cargo build` first");
-
-    let client = wait_for_server(port, Duration::from_secs(60));
-    let base = format!("http://127.0.0.1:{}", port);
-
-    // GET /health → 200 with {status, model, sets, uptime}
-    let resp = client.get(format!("{base}/health")).send().unwrap();
-    assert_eq!(resp.status(), 200);
-    let health: serde_json::Value = resp.json().unwrap();
-    assert_eq!(health["status"], "ok");
-    assert!(health["model"].is_string());
-    assert!(health["sets"].as_u64().unwrap() >= 1);
-    assert!(health["uptime"].is_string());
-
-    // GET /sets → 200 with [{name, phrases, mode}]
-    let resp = client.get(format!("{base}/sets")).send().unwrap();
-    assert_eq!(resp.status(), 200);
-    let sets: Vec<serde_json::Value> = resp.json().unwrap();
-    assert!(!sets.is_empty());
-    let first = &sets[0];
-    assert!(first["name"].is_string());
-    assert!(first["phrases"].is_number());
-    assert!(first["mode"].is_string());
-
-    // POST /classify with valid set → 200
-    let resp = client
-        .post(format!("{base}/classify"))
-        .json(&serde_json::json!({
-            "text": "no, use the other approach instead",
-            "reference_set": "corrections"
-        }))
-        .send()
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-    let result: serde_json::Value = resp.json().unwrap();
-    // Binary result has "match", "confidence", "top_phrase", "scores"
-    assert!(result.get("match").is_some());
-    assert!(result.get("confidence").is_some());
-    assert!(result.get("top_phrase").is_some());
-
-    // POST /classify with missing set → 404 with {error}
-    let resp = client
-        .post(format!("{base}/classify"))
-        .json(&serde_json::json!({
-            "text": "test",
-            "reference_set": "nonexistent"
-        }))
-        .send()
-        .unwrap();
-    assert_eq!(resp.status(), 404);
-    let err: serde_json::Value = resp.json().unwrap();
-    assert!(err["error"].as_str().unwrap().contains("not found"));
-
-    // POST /embed → 200 with {embedding, dimensions, model}
-    let resp = client
-        .post(format!("{base}/embed"))
-        .json(&serde_json::json!({"text": "embedding test"}))
-        .send()
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-    let embed: serde_json::Value = resp.json().unwrap();
-    assert!(embed["dimensions"].as_u64().unwrap() > 0);
-    assert!(!embed["embedding"].as_array().unwrap().is_empty());
-    assert!(embed["model"].is_string());
-
-    // POST /similarity → 200 with {similarity}
-    let resp = client
-        .post(format!("{base}/similarity"))
-        .json(&serde_json::json!({"a": "cat", "b": "dog"}))
-        .send()
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-    let sim: serde_json::Value = resp.json().unwrap();
-    let score = sim["similarity"].as_f64().unwrap();
-    assert!((-1.0..=1.0).contains(&score));
-
-    // Clean up
-    child.kill().ok();
-    child.wait().ok();
-}
-
-/// Integration test that verifies `/classify` returns a result when MLP is loaded.
+/// Spawn `csn mcp`, send a JSON-RPC request via stdin, read the response from stdout.
 ///
-/// Requires model download and MLP training at startup, so it is ignored in CI.
+/// Requires model download — marked `#[ignore]` for CI.
 /// Run manually: `cargo test --test integration_test -- --ignored`
 #[test]
 #[ignore]
-fn classify_returns_mlp_result() {
-    let port = available_port();
+fn mcp_initialize_and_list_tools() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let sets_dir = format!("{}/reference-sets", manifest_dir);
     let bin = format!("{}/target/debug/csn", manifest_dir);
+    let sets_dir = format!("{}/reference-sets", manifest_dir);
 
-    let mut child = std::process::Command::new(&bin)
-        .args([
-            "serve",
-            "--port",
-            &port.to_string(),
-            "--sets-dir",
-            &sets_dir,
-            "--model",
-            "bge-small-en-v1.5-Q",
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+    let mut child = Command::new(&bin)
+        .arg("mcp")
+        .env("CSN_SETS_DIR", &sets_dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
         .spawn()
-        .expect("failed to start daemon — run `cargo build` first");
+        .expect("failed to start csn mcp — run `cargo build` first");
 
-    // MLP training happens at startup, allow extra time
-    let client = wait_for_server(port, Duration::from_secs(120));
-    let base = format!("http://127.0.0.1:{}", port);
+    let mut stdin = child.stdin.take().unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let mut reader = BufReader::new(stdout);
 
-    let resp = client
-        .post(format!("{base}/classify"))
-        .json(&serde_json::json!({
-            "text": "I don't think that's right",
-            "reference_set": "corrections"
-        }))
-        .send()
-        .unwrap();
-    assert_eq!(resp.status(), 200);
+    // Send initialize request
+    let init_request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {
+                "name": "integration-test",
+                "version": "0.1.0"
+            }
+        }
+    });
 
-    let result: serde_json::Value = resp.json().unwrap();
+    writeln!(stdin, "{}", serde_json::to_string(&init_request).unwrap()).unwrap();
+    stdin.flush().unwrap();
 
-    // "match" field must be a boolean (serde renames is_match -> match)
+    // Read initialize response
+    let init_response = read_jsonrpc_response(&mut reader, Duration::from_secs(120));
+    assert_eq!(init_response["id"], 1);
     assert!(
-        result.get("match").is_some(),
-        "response must contain 'match' field"
-    );
-    assert!(
-        result["match"].is_boolean(),
-        "'match' must be a boolean, got: {}",
-        result["match"]
-    );
-
-    // confidence must be between 0 and 1
-    let confidence = result["confidence"]
-        .as_f64()
-        .expect("response must contain numeric 'confidence' field");
-    assert!(
-        (0.0..=1.0).contains(&confidence),
-        "confidence must be in [0, 1], got: {confidence}"
+        init_response["result"]["serverInfo"]["name"]
+            .as_str()
+            .unwrap()
+            .contains("csn"),
+        "server name should contain 'csn'"
     );
 
-    // scores must exist
-    assert!(
-        result.get("scores").is_some(),
-        "response must contain 'scores' field"
-    );
+    // Send initialized notification
+    let initialized = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/initialized"
+    });
+    writeln!(stdin, "{}", serde_json::to_string(&initialized).unwrap()).unwrap();
+    stdin.flush().unwrap();
+
+    // Send tools/list request
+    let list_request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/list",
+        "params": {}
+    });
+    writeln!(stdin, "{}", serde_json::to_string(&list_request).unwrap()).unwrap();
+    stdin.flush().unwrap();
+
+    // Read tools/list response
+    let tools_response = read_jsonrpc_response(&mut reader, Duration::from_secs(10));
+    assert_eq!(tools_response["id"], 2);
+
+    let tools = tools_response["result"]["tools"]
+        .as_array()
+        .expect("tools should be an array");
+    assert_eq!(tools.len(), 4, "should have 4 tools");
+
+    let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+    assert!(tool_names.contains(&"classify"));
+    assert!(tool_names.contains(&"list_sets"));
+    assert!(tool_names.contains(&"embed"));
+    assert!(tool_names.contains(&"similarity"));
 
     // Clean up
+    drop(stdin);
     child.kill().ok();
     child.wait().ok();
+}
+
+/// Spawn `csn mcp`, call the classify tool, verify the response format.
+///
+/// Requires model download — marked `#[ignore]` for CI.
+/// Run manually: `cargo test --test integration_test -- --ignored`
+#[test]
+#[ignore]
+fn mcp_classify_tool_returns_valid_result() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let bin = format!("{}/target/debug/csn", manifest_dir);
+    let sets_dir = format!("{}/reference-sets", manifest_dir);
+
+    let mut child = Command::new(&bin)
+        .arg("mcp")
+        .env("CSN_SETS_DIR", &sets_dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("failed to start csn mcp");
+
+    let mut stdin = child.stdin.take().unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let mut reader = BufReader::new(stdout);
+
+    // Initialize handshake
+    mcp_handshake(&mut stdin, &mut reader);
+
+    // Call classify tool
+    let call_request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+            "name": "classify",
+            "arguments": {
+                "text": "no, use the other approach instead",
+                "reference_set": "corrections"
+            }
+        }
+    });
+    writeln!(stdin, "{}", serde_json::to_string(&call_request).unwrap()).unwrap();
+    stdin.flush().unwrap();
+
+    let response = read_jsonrpc_response(&mut reader, Duration::from_secs(30));
+    assert_eq!(response["id"], 3);
+
+    let content = &response["result"]["content"];
+    assert!(content.is_array(), "content should be an array");
+    let text = content[0]["text"]
+        .as_str()
+        .expect("should have text content");
+    let result: serde_json::Value = serde_json::from_str(text).expect("text should be valid JSON");
+
+    assert!(result.get("match").is_some(), "should have 'match' field");
+    assert!(
+        result.get("confidence").is_some(),
+        "should have 'confidence' field"
+    );
+    assert!(
+        result.get("top_phrase").is_some(),
+        "should have 'top_phrase' field"
+    );
+    assert!(result.get("scores").is_some(), "should have 'scores' field");
+
+    // Clean up
+    drop(stdin);
+    child.kill().ok();
+    child.wait().ok();
+}
+
+fn mcp_handshake(stdin: &mut impl Write, reader: &mut impl BufRead) {
+    let init_request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {
+                "name": "integration-test",
+                "version": "0.1.0"
+            }
+        }
+    });
+    writeln!(stdin, "{}", serde_json::to_string(&init_request).unwrap()).unwrap();
+    stdin.flush().unwrap();
+
+    let _init_response = read_jsonrpc_response(reader, Duration::from_secs(120));
+
+    let initialized = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/initialized"
+    });
+    writeln!(stdin, "{}", serde_json::to_string(&initialized).unwrap()).unwrap();
+    stdin.flush().unwrap();
+}
+
+fn read_jsonrpc_response(reader: &mut impl BufRead, timeout: Duration) -> serde_json::Value {
+    let start = std::time::Instant::now();
+    let mut line = String::new();
+
+    loop {
+        if start.elapsed() > timeout {
+            panic!(
+                "timed out waiting for JSON-RPC response after {:?}",
+                timeout
+            );
+        }
+
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => panic!("EOF while waiting for JSON-RPC response"),
+            Ok(_) => {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                    // Skip notifications (no "id" field)
+                    if val.get("id").is_some() {
+                        return val;
+                    }
+                }
+            }
+            Err(e) => panic!("error reading from stdout: {e}"),
+        }
+    }
 }

@@ -1,9 +1,10 @@
-# Contract: /classify Endpoint (MLP Enhancement)
+# Contract: Classify (MLP Enhancement)
 
-## Request (unchanged)
+> **Note**: REST endpoint removed in spec 004. Current transport is MCP stdio (`classify` tool). Response shape is unchanged. See `specs/004-mcp-sse/contracts/mcp-tools.md` for current MCP tool contract.
+
+## Request
 
 ```json
-POST /classify
 {
   "text": "string",
   "reference_set": "string"

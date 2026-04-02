@@ -57,8 +57,8 @@ check: lint test build
 # Run
 
 [group('run')]
-serve:
-    cargo run -- serve
+mcp:
+    cargo run -- mcp
 
 [group('run')]
 classify *ARGS:
