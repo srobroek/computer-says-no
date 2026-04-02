@@ -1,4 +1,4 @@
-# Specification Quality Checklist: MCP Server Integration
+# Specification Quality Checklist: MCP Server + Architecture Simplification
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-04-02
@@ -32,3 +32,4 @@
 ## Notes
 
 - All items pass. Spec is ready for `/speckit.clarify` or `/speckit.plan`.
+- This spec includes breaking changes: removing daemon, REST, standalone flag, file watcher.
