@@ -74,6 +74,8 @@ just clean        # cargo clean
 - Daemon files in `~/.cache/computer-says-no/` (csn.sock, csn.pid, csn.lock) (005-lazy-daemon)
 - unicode-normalization 0.1, std::hash for character n-gram feature hashing (007-char-ngram-features)
 - MLP input: 643-dim (384 embedding + 3 cosine + 256 char n-grams), cache key versioned v2-char256 (007-char-ngram-features)
+- Rust 2024 edition (1.92) + burn 0.20 (ndarray + autodiff + train), fastembed 5.13, clap 4, rust-mcp-sdk 0.9 (008-mlp-multi-category)
+- TOML reference sets, binary MLP weight cache (`.mpk`), binary embedding cache (blake3) (008-mlp-multi-category)
 
 ## Recent Changes
 - 007-char-ngram-features: Character n-gram features for typo robustness — 256-dim feature hashing, MLP input 643-dim, 55 tests

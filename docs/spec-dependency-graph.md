@@ -7,7 +7,8 @@ graph LR
     003[003: MLP Classifier]:::done
     004[004: MCP Server]:::done
     005[005: Lazy Daemon]:::done
-    007[007: Char N-gram Features]:::ready
+    007[007: Char N-gram Features]:::done
+    008[008: MLP Multi-Category]:::ready
 
     001 --> 002
     001 --> 003
@@ -15,6 +16,8 @@ graph LR
     002 --> 003
     004 --> 005
     003 --> 007
+    007 --> 008
+    003 --> 008
 
     classDef done fill:#2da44e,color:#fff
     classDef ready fill:#bf8700,color:#fff
@@ -30,15 +33,16 @@ graph LR
 | 003 | done | MLP classifier — 2-layer neural network on embeddings + cosine features |
 | 004 | done | MCP stdio server — 4 tools (classify, list_sets, embed, similarity) |
 | 005 | done | Lazy auto-starting background daemon — unix socket, idle timeout, fast CLI |
-| 007 | ready | Character n-gram features — 256-dim feature hashing for typo robustness |
+| 007 | done | Character n-gram features — 256-dim feature hashing for typo robustness |
+| 008 | ready | MLP multi-category — softmax output, corrections.toml restructure, per-category scoring |
 
 ## Ready Now
 
-- **007-char-ngram-features**: Implementation complete, pending quality gates
+- **008-mlp-multi-category**: All dependencies met (003 MLP + 007 char n-grams both done)
 
 ## Critical Path
 
-003 → 007 (char features extend MLP classifier)
+003 → 007 → 008 (MLP classifier → char features → multi-category)
 
 ## Dependency Details
 
@@ -50,3 +54,5 @@ graph LR
 | 004 → 001 | MCP server wraps the core classification/embedding engine | — |
 | 005 → 004 | Daemon adds unix socket transport alongside MCP stdio | — |
 | 007 → 003 | Character features extend MLP input layer | — |
+| 008 → 003 | Multi-category extends MLP architecture (sigmoid→softmax) | — |
+| 008 → 007 | Multi-category MLP reuses char n-gram feature input | — |
