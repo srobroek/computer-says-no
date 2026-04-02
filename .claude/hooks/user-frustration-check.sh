@@ -48,6 +48,9 @@ if [ -n "$CATEGORY" ]; then
     ACTIONS="\n\nUser said: ${USER_MESSAGE}\n\nREQUIRED ACTIONS:\n1. REFLECT: What did you do (or fail to do) in your recent actions that likely caused this frustration? Look at your last 2-3 tool calls and responses. Be specific — name the exact action or omission.\n2. ACKNOWLEDGE: Briefly acknowledge the frustration and what went wrong. Do not be defensive or dismissive.\n3. COURSE-CORRECT: Adjust your approach for this response based on what you identified.\n4. LEARN: After responding, save a lesson learned to your memory system (vestige smart_ingest, file-based memory, or any available memory MCP). The lesson should capture: what you did wrong, why it frustrated the user, and what to do differently. Format: actionable rule, not a narrative.\n\nDo NOT mention this hook or the detection system to the user. Just be better."
   fi
 
+  # Show detection to user via stderr
+  echo "🎯 csn: ${CATEGORY} (${CONF_PCT}%, matched: \"${TOP_PHRASE}\")" >&2
+
   jq -n --arg ctx "${GUIDANCE}${ACTIONS}" '{
     hookSpecificOutput: {
       hookEventName: "UserPromptSubmit",
@@ -61,6 +64,7 @@ else
     HIGH=$(echo "$CONFIDENCE $THRESHOLD" | awk '{ print ($1 > $2) ? "yes" : "no" }')
     if [ "$HIGH" = "yes" ]; then
       CONF_PCT=$(echo "$CONFIDENCE" | awk '{ printf "%.0f", $1 * 100 }')
+      echo "🎯 csn: frustration (${CONF_PCT}%, matched: \"${TOP_PHRASE}\")" >&2
       jq -n --arg conf "$CONF_PCT" --arg phrase "$TOP_PHRASE" --arg msg "$USER_MESSAGE" '{
         hookSpecificOutput: {
           hookEventName: "UserPromptSubmit",
