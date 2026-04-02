@@ -1,7 +1,9 @@
 mod benchmark;
 mod classifier;
+#[cfg(unix)]
 mod client;
 mod config;
+#[cfg(unix)]
 mod daemon;
 mod dataset;
 mod embedding_cache;
@@ -92,10 +94,12 @@ enum Command {
         action: BenchmarkAction,
     },
 
-    /// Stop the background daemon
+    /// Stop the background daemon (Unix only)
+    #[cfg(unix)]
     Stop,
 
-    /// Run as background daemon (internal — spawned automatically)
+    /// Run as background daemon (internal — spawned automatically, Unix only)
+    #[cfg(unix)]
     #[command(hide = true)]
     Daemon,
 }
@@ -284,11 +288,13 @@ fn main() -> Result<()> {
             }
         },
 
+        #[cfg(unix)]
         Command::Stop => {
             let config = AppConfig::load(CliOverrides::default())?;
             cmd_stop(&config)
         }
 
+        #[cfg(unix)]
         Command::Daemon => {
             let config = AppConfig::load(CliOverrides::default())?;
             init_tracing(&config.log_level);
@@ -309,24 +315,28 @@ fn init_tracing(log_level: &str) {
 // --- In-process commands ---
 
 fn cmd_classify(config: &AppConfig, text: &str, set_name: &str, json: bool) -> Result<()> {
-    // Try daemon first
-    let req = daemon::DaemonRequest {
-        command: "classify".to_string(),
-        args: serde_json::json!({"text": text, "set": set_name}),
-    };
-    if let Some(resp) = client::request_via_daemon(config, &req) {
-        if resp.ok {
-            if let Some(result) = resp.result {
-                let classify_result: classifier::ClassifyResult = serde_json::from_value(result)?;
-                print_classify_result(&classify_result, json);
-                return Ok(());
+    // Try daemon first (Unix only)
+    #[cfg(unix)]
+    {
+        let req = daemon::DaemonRequest {
+            command: "classify".to_string(),
+            args: serde_json::json!({"text": text, "set": set_name}),
+        };
+        if let Some(resp) = client::request_via_daemon(config, &req) {
+            if resp.ok {
+                if let Some(result) = resp.result {
+                    let classify_result: classifier::ClassifyResult =
+                        serde_json::from_value(result)?;
+                    print_classify_result(&classify_result, json);
+                    return Ok(());
+                }
+            } else if let Some(err) = resp.error {
+                anyhow::bail!("{err}");
             }
-        } else if let Some(err) = resp.error {
-            anyhow::bail!("{err}");
         }
     }
 
-    // Fallback: in-process
+    // In-process
     let sets_dir = config.resolve_sets_dir();
     let mut engine = EmbeddingEngine::new(config.model, Some(config.model_cache_dir()))?;
     let sets = load_all_reference_sets(&sets_dir, &mut engine, Some(&config.cache_dir))?;
@@ -386,23 +396,25 @@ fn cmd_classify(config: &AppConfig, text: &str, set_name: &str, json: bool) -> R
 }
 
 fn cmd_embed(config: &AppConfig, text: &str) -> Result<()> {
-    // Try daemon first
-    let req = daemon::DaemonRequest {
-        command: "embed".to_string(),
-        args: serde_json::json!({"text": text}),
-    };
-    if let Some(resp) = client::request_via_daemon(config, &req) {
-        if resp.ok {
-            if let Some(result) = resp.result {
-                println!("{}", serde_json::to_string_pretty(&result)?);
-                return Ok(());
+    #[cfg(unix)]
+    {
+        let req = daemon::DaemonRequest {
+            command: "embed".to_string(),
+            args: serde_json::json!({"text": text}),
+        };
+        if let Some(resp) = client::request_via_daemon(config, &req) {
+            if resp.ok {
+                if let Some(result) = resp.result {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                    return Ok(());
+                }
+            } else if let Some(err) = resp.error {
+                anyhow::bail!("{err}");
             }
-        } else if let Some(err) = resp.error {
-            anyhow::bail!("{err}");
         }
     }
 
-    // Fallback: in-process
+    // In-process
     let mut engine = EmbeddingEngine::new(config.model, Some(config.model_cache_dir()))?;
     let embedding = engine.embed_one(text)?;
     let output = serde_json::json!({
@@ -415,28 +427,30 @@ fn cmd_embed(config: &AppConfig, text: &str) -> Result<()> {
 }
 
 fn cmd_similarity(config: &AppConfig, a: &str, b: &str) -> Result<()> {
-    // Try daemon first
-    let req = daemon::DaemonRequest {
-        command: "similarity".to_string(),
-        args: serde_json::json!({"a": a, "b": b}),
-    };
-    if let Some(resp) = client::request_via_daemon(config, &req) {
-        if resp.ok {
-            if let Some(sim) = resp
-                .result
-                .as_ref()
-                .and_then(|r| r.get("similarity"))
-                .and_then(|v| v.as_f64())
-            {
-                println!("{sim:.4}");
-                return Ok(());
+    #[cfg(unix)]
+    {
+        let req = daemon::DaemonRequest {
+            command: "similarity".to_string(),
+            args: serde_json::json!({"a": a, "b": b}),
+        };
+        if let Some(resp) = client::request_via_daemon(config, &req) {
+            if resp.ok {
+                if let Some(sim) = resp
+                    .result
+                    .as_ref()
+                    .and_then(|r| r.get("similarity"))
+                    .and_then(|v| v.as_f64())
+                {
+                    println!("{sim:.4}");
+                    return Ok(());
+                }
+            } else if let Some(err) = resp.error {
+                anyhow::bail!("{err}");
             }
-        } else if let Some(err) = resp.error {
-            anyhow::bail!("{err}");
         }
     }
 
-    // Fallback: in-process
+    // In-process
     let mut engine = EmbeddingEngine::new(config.model, Some(config.model_cache_dir()))?;
     let embeddings = engine.embed(&[a, b])?;
     let sim = cosine_similarity(&embeddings[0], &embeddings[1]);
@@ -444,6 +458,7 @@ fn cmd_similarity(config: &AppConfig, a: &str, b: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
 fn cmd_stop(config: &AppConfig) -> Result<()> {
     let pid_path = config.pid_path();
     if !pid_path.exists() {
