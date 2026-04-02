@@ -191,6 +191,101 @@ fn mcp_handshake(stdin: &mut impl Write, reader: &mut impl BufRead) {
     stdin.flush().unwrap();
 }
 
+/// Spawn `csn daemon` with a short idle timeout, verify it self-exits.
+///
+/// Requires model download — marked `#[ignore]` for CI.
+/// Run manually: `cargo test --test integration_test -- --ignored`
+#[test]
+#[ignore]
+fn daemon_self_exits_on_idle_timeout() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let bin = format!("{}/target/debug/csn", manifest_dir);
+    let sets_dir = format!("{}/reference-sets", manifest_dir);
+    let cache_dir = format!("{}/target/test-daemon-cache", manifest_dir);
+
+    // Ensure clean state
+    let socket_path = format!("{cache_dir}/csn.sock");
+    let pid_path = format!("{cache_dir}/csn.pid");
+    let _ = std::fs::remove_file(&socket_path);
+    let _ = std::fs::remove_file(&pid_path);
+    let _ = std::fs::create_dir_all(&cache_dir);
+
+    // Start daemon with 2-second idle timeout
+    let mut child = Command::new(&bin)
+        .arg("daemon")
+        .env("CSN_SETS_DIR", &sets_dir)
+        .env("CSN_CACHE_DIR", &cache_dir)
+        .env("CSN_IDLE_TIMEOUT", "2")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("failed to start csn daemon — run `cargo build` first");
+
+    // Wait for socket to appear
+    let start = std::time::Instant::now();
+    while !std::path::Path::new(&socket_path).exists() {
+        if start.elapsed() > Duration::from_secs(120) {
+            child.kill().ok();
+            panic!("daemon socket did not appear within 120s");
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    // Send one request to verify daemon works
+    let stream = std::os::unix::net::UnixStream::connect(&socket_path)
+        .expect("failed to connect to daemon socket");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    stream
+        .set_write_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+
+    {
+        use std::io::Write as _;
+        let req = serde_json::json!({"command": "classify", "args": {"text": "test", "set": "corrections"}});
+        let mut msg = serde_json::to_string(&req).unwrap();
+        msg.push('\n');
+        (&stream).write_all(msg.as_bytes()).unwrap();
+        (&stream).flush().unwrap();
+
+        let mut reader = BufReader::new(&stream);
+        let mut response_line = String::new();
+        reader.read_line(&mut response_line).unwrap();
+        let resp: serde_json::Value = serde_json::from_str(response_line.trim()).unwrap();
+        assert_eq!(resp["ok"], true, "daemon classify should succeed");
+    }
+    drop(stream);
+
+    // Wait for idle timeout (2s) + check interval (30s max, but daemon checks every 30s)
+    // With 2s timeout and 30s check interval, daemon should exit within ~32s
+    let timeout_start = std::time::Instant::now();
+    loop {
+        if !std::path::Path::new(&socket_path).exists() {
+            break; // Socket cleaned up — daemon exited
+        }
+        if timeout_start.elapsed() > Duration::from_secs(40) {
+            child.kill().ok();
+            child.wait().ok();
+            panic!("daemon did not self-exit within 40s after idle timeout");
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+
+    // Verify PID file also cleaned up
+    assert!(
+        !std::path::Path::new(&pid_path).exists(),
+        "PID file should be cleaned up after daemon exit"
+    );
+
+    // Verify process actually exited
+    let status = child.wait().expect("failed to wait on daemon");
+    assert!(
+        status.success(),
+        "daemon should exit cleanly, got: {status}"
+    );
+}
+
 fn read_jsonrpc_response(reader: &mut impl BufRead, timeout: Duration) -> serde_json::Value {
     let start = std::time::Instant::now();
     let mut line = String::new();
