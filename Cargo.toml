@@ -31,6 +31,7 @@ indicatif = "0.17"
 burn = { version = "0.20", default-features = false, features = ["std", "ndarray", "autodiff", "train"] }
 rust-mcp-sdk = { version = "0.9", features = ["server"] }
 async-trait = "0.1"
+nix = { version = "0.29", features = ["signal", "process"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 burn = { version = "0.20", default-features = false, features = ["std", "ndarray", "autodiff", "train", "accelerate"] }

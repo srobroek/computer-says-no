@@ -1,6 +1,8 @@
 mod benchmark;
 mod classifier;
+mod client;
 mod config;
+mod daemon;
 mod dataset;
 mod embedding_cache;
 #[allow(clippy::enum_variant_names)]
@@ -89,6 +91,13 @@ enum Command {
         #[command(subcommand)]
         action: BenchmarkAction,
     },
+
+    /// Stop the background daemon
+    Stop,
+
+    /// Run as background daemon (internal — spawned automatically)
+    #[command(hide = true)]
+    Daemon,
 }
 
 #[derive(Subcommand)]
@@ -274,6 +283,17 @@ fn main() -> Result<()> {
                 cmd_generate_datasets(&config, output_dir)
             }
         },
+
+        Command::Stop => {
+            let config = AppConfig::load(CliOverrides::default())?;
+            cmd_stop(&config)
+        }
+
+        Command::Daemon => {
+            let config = AppConfig::load(CliOverrides::default())?;
+            init_tracing(&config.log_level);
+            daemon::run_daemon(&config)
+        }
     }
 }
 
@@ -289,6 +309,24 @@ fn init_tracing(log_level: &str) {
 // --- In-process commands ---
 
 fn cmd_classify(config: &AppConfig, text: &str, set_name: &str, json: bool) -> Result<()> {
+    // Try daemon first
+    let req = daemon::DaemonRequest {
+        command: "classify".to_string(),
+        args: serde_json::json!({"text": text, "set": set_name}),
+    };
+    if let Some(resp) = client::request_via_daemon(config, &req) {
+        if resp.ok {
+            if let Some(result) = resp.result {
+                let classify_result: classifier::ClassifyResult = serde_json::from_value(result)?;
+                print_classify_result(&classify_result, json);
+                return Ok(());
+            }
+        } else if let Some(err) = resp.error {
+            anyhow::bail!("{err}");
+        }
+    }
+
+    // Fallback: in-process
     let sets_dir = config.resolve_sets_dir();
     let mut engine = EmbeddingEngine::new(config.model, Some(config.model_cache_dir()))?;
     let sets = load_all_reference_sets(&sets_dir, &mut engine, Some(&config.cache_dir))?;
@@ -326,6 +364,23 @@ fn cmd_classify(config: &AppConfig, text: &str, set_name: &str, json: bool) -> R
 }
 
 fn cmd_embed(config: &AppConfig, text: &str) -> Result<()> {
+    // Try daemon first
+    let req = daemon::DaemonRequest {
+        command: "embed".to_string(),
+        args: serde_json::json!({"text": text}),
+    };
+    if let Some(resp) = client::request_via_daemon(config, &req) {
+        if resp.ok {
+            if let Some(result) = resp.result {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+                return Ok(());
+            }
+        } else if let Some(err) = resp.error {
+            anyhow::bail!("{err}");
+        }
+    }
+
+    // Fallback: in-process
     let mut engine = EmbeddingEngine::new(config.model, Some(config.model_cache_dir()))?;
     let embedding = engine.embed_one(text)?;
     let output = serde_json::json!({
@@ -338,10 +393,72 @@ fn cmd_embed(config: &AppConfig, text: &str) -> Result<()> {
 }
 
 fn cmd_similarity(config: &AppConfig, a: &str, b: &str) -> Result<()> {
+    // Try daemon first
+    let req = daemon::DaemonRequest {
+        command: "similarity".to_string(),
+        args: serde_json::json!({"a": a, "b": b}),
+    };
+    if let Some(resp) = client::request_via_daemon(config, &req) {
+        if resp.ok {
+            if let Some(sim) = resp
+                .result
+                .as_ref()
+                .and_then(|r| r.get("similarity"))
+                .and_then(|v| v.as_f64())
+            {
+                println!("{sim:.4}");
+                return Ok(());
+            }
+        } else if let Some(err) = resp.error {
+            anyhow::bail!("{err}");
+        }
+    }
+
+    // Fallback: in-process
     let mut engine = EmbeddingEngine::new(config.model, Some(config.model_cache_dir()))?;
     let embeddings = engine.embed(&[a, b])?;
     let sim = cosine_similarity(&embeddings[0], &embeddings[1]);
-    println!("{:.4}", sim);
+    println!("{sim:.4}");
+    Ok(())
+}
+
+fn cmd_stop(config: &AppConfig) -> Result<()> {
+    let pid_path = config.pid_path();
+    if !pid_path.exists() {
+        println!("No daemon running");
+        return Ok(());
+    }
+
+    if !client::is_daemon_alive(&pid_path) {
+        // Stale files — clean up
+        let _ = std::fs::remove_file(config.socket_path());
+        let _ = std::fs::remove_file(&pid_path);
+        println!("Cleaned up stale daemon files");
+        return Ok(());
+    }
+
+    let content = std::fs::read_to_string(&pid_path)?;
+    let pid: i32 = content.trim().parse().context("invalid PID file")?;
+
+    nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(pid),
+        nix::sys::signal::Signal::SIGTERM,
+    )
+    .context("sending SIGTERM to daemon")?;
+
+    // Wait briefly for cleanup
+    for _ in 0..10 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if !pid_path.exists() {
+            println!("Daemon stopped");
+            return Ok(());
+        }
+    }
+
+    // Force cleanup if daemon didn't clean up in time
+    let _ = std::fs::remove_file(config.socket_path());
+    let _ = std::fs::remove_file(&pid_path);
+    println!("Daemon stopped (forced cleanup)");
     Ok(())
 }
 
