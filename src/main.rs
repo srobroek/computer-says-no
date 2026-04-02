@@ -3,6 +3,7 @@ mod classifier;
 mod config;
 mod dataset;
 mod embedding_cache;
+mod mlp;
 mod model;
 mod reference_set;
 mod server;
@@ -354,7 +355,7 @@ fn init_tracing(log_level: &str) {
 // --- Remote (daemon) commands ---
 
 fn daemon_url(config: &AppConfig, path: &str) -> String {
-    format!("http://127.0.0.1:{}{}", config.port, path)
+    format!("http://{}:{}{}", config.host, config.port, path)
 }
 
 fn check_daemon(config: &AppConfig) -> Result<reqwest::blocking::Client> {
@@ -367,8 +368,8 @@ fn check_daemon(config: &AppConfig) -> Result<reqwest::blocking::Client> {
         .send()
         .with_context(|| {
             format!(
-                "daemon not reachable at 127.0.0.1:{}. Start it with `csn serve` or use --standalone",
-                config.port
+                "daemon not reachable at {}:{}. Start it with `csn serve` or use --standalone",
+                config.host, config.port
             )
         })?;
 
@@ -462,7 +463,24 @@ fn cmd_classify_standalone(
             )
         })?;
 
-    let result = classifier::classify_text(&mut engine, text, reference_set)?;
+    // Train MLP for the reference set (or load from cache) so standalone
+    // classify uses the combined pipeline, same as the daemon.
+    eprintln!("Loading MLP models (training or loading from cache)...");
+    let trained_models = mlp::train_models_at_startup(
+        &sets,
+        &config.cache_dir,
+        config.mlp_learning_rate,
+        config.mlp_weight_decay,
+        config.mlp_max_epochs,
+        config.mlp_patience,
+        config.mlp_fallback,
+    )?;
+    eprintln!("MLP ready ({} model(s) loaded)", trained_models.len());
+    let trained_model = trained_models
+        .iter()
+        .find(|m| m.reference_set_name == set_name);
+
+    let result = classifier::classify_text(&mut engine, text, reference_set, trained_model)?;
     print_classify_result(&result, json);
     Ok(())
 }
@@ -586,6 +604,7 @@ fn cmd_benchmark_run(
         &config.cache_dir,
         warmup,
         iterations,
+        output.as_deref(),
     )?;
 
     // Output results

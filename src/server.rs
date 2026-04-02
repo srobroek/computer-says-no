@@ -12,16 +12,23 @@ use std::time::Instant;
 
 use crate::classifier;
 use crate::config::AppConfig;
+use crate::mlp::{TrainedModel, train_models_at_startup};
 use crate::model::{EmbeddingEngine, ModelChoice, cosine_similarity};
 use crate::reference_set::{ReferenceSet, load_all_reference_sets};
 
 pub struct AppState {
     pub engine: Mutex<EmbeddingEngine>,
     pub sets: RwLock<Vec<ReferenceSet>>,
+    pub trained_models: Mutex<Vec<TrainedModel>>,
     pub start_time: Instant,
     pub model: ModelChoice,
     pub sets_dir: PathBuf,
     pub cache_dir: PathBuf,
+    pub mlp_learning_rate: f64,
+    pub mlp_weight_decay: f64,
+    pub mlp_max_epochs: usize,
+    pub mlp_patience: usize,
+    pub mlp_fallback: bool,
 }
 
 #[derive(Serialize)]
@@ -114,13 +121,31 @@ pub async fn serve(config: &AppConfig) -> anyhow::Result<()> {
     let sets = load_all_reference_sets(&sets_dir, &mut engine, Some(&config.cache_dir))?;
     tracing::info!(count = sets.len(), "reference sets loaded");
 
+    tracing::info!("training MLP classifiers");
+    let trained_models = train_models_at_startup(
+        &sets,
+        &config.cache_dir,
+        config.mlp_learning_rate,
+        config.mlp_weight_decay,
+        config.mlp_max_epochs,
+        config.mlp_patience,
+        config.mlp_fallback,
+    )?;
+    tracing::info!(count = trained_models.len(), "MLP classifiers ready");
+
     let state = Arc::new(AppState {
         engine: Mutex::new(engine),
         sets: RwLock::new(sets),
+        trained_models: Mutex::new(trained_models),
         start_time: start,
         model: config.model,
         sets_dir: sets_dir.clone(),
         cache_dir: config.cache_dir.clone(),
+        mlp_learning_rate: config.mlp_learning_rate,
+        mlp_weight_decay: config.mlp_weight_decay,
+        mlp_max_epochs: config.mlp_max_epochs,
+        mlp_patience: config.mlp_patience,
+        mlp_fallback: config.mlp_fallback,
     });
 
     // Start file watcher for hot-reload
@@ -134,7 +159,7 @@ pub async fn serve(config: &AppConfig) -> anyhow::Result<()> {
         .route("/sets", get(handle_sets))
         .with_state(state);
 
-    let addr = format!("127.0.0.1:{}", config.port);
+    let addr = format!("{}:{}", config.host, config.port);
     tracing::info!(%addr, elapsed = ?start.elapsed(), "server ready");
     let listener = tokio::net::TcpListener::bind(&addr).await.map_err(|e| {
         if e.kind() == std::io::ErrorKind::AddrInUse {
@@ -193,11 +218,19 @@ async fn handle_classify(
             ))
         })?;
 
+    let trained_models = state
+        .trained_models
+        .lock()
+        .map_err(|_| AppError::internal("lock poisoned".to_string()))?;
+    let trained_model = trained_models
+        .iter()
+        .find(|m| m.reference_set_name == req.reference_set);
+
     let mut engine = state
         .engine
         .lock()
         .map_err(|_| AppError::internal("lock poisoned".to_string()))?;
-    let result = classifier::classify_text(&mut engine, &req.text, set)
+    let result = classifier::classify_text(&mut engine, &req.text, set, trained_model)
         .map_err(|e| AppError::internal(e.to_string()))?;
 
     Ok(Json(result))

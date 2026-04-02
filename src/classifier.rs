@@ -1,5 +1,8 @@
+use burn::backend::NdArray;
+use burn::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::mlp::{TrainedModel, compute_cosine_features};
 use crate::model::{Embedding, EmbeddingEngine, cosine_similarity};
 use crate::reference_set::{ReferenceSet, ReferenceSetKind};
 
@@ -63,11 +66,22 @@ impl ClassifyResult {
 }
 
 /// Classify text against a reference set.
-pub fn classify(text_embedding: &Embedding, reference_set: &ReferenceSet) -> ClassifyResult {
+///
+/// When `trained_model` is `Some` and the reference set is binary, the MLP
+/// classifier is used instead of the pure cosine path.
+pub fn classify(
+    text_embedding: &Embedding,
+    reference_set: &ReferenceSet,
+    trained_model: Option<&TrainedModel>,
+) -> ClassifyResult {
     let threshold = reference_set.metadata.threshold;
 
     match &reference_set.kind {
         ReferenceSetKind::Binary(binary) => {
+            if let Some(model) = trained_model {
+                return ClassifyResult::Binary(classify_with_mlp(text_embedding, model));
+            }
+
             let (pos_score, pos_phrase) =
                 best_match(text_embedding, &binary.positive, &binary.positive_phrases);
             let (neg_score, _neg_phrase) = if binary.negative.is_empty() {
@@ -130,9 +144,58 @@ pub fn classify_text(
     engine: &mut EmbeddingEngine,
     text: &str,
     reference_set: &ReferenceSet,
+    trained_model: Option<&TrainedModel>,
 ) -> anyhow::Result<ClassifyResult> {
     let embedding = engine.embed_one(text)?;
-    Ok(classify(&embedding, reference_set))
+    Ok(classify(&embedding, reference_set, trained_model))
+}
+
+/// Classify a text embedding using a trained MLP model.
+///
+/// Computes cosine features against the model's cached positive/negative
+/// embeddings, concatenates them with the raw text embedding to form a 387-dim
+/// input vector, and runs the MLP forward pass. Returns a `BinaryResult` where
+/// `confidence` is the MLP sigmoid output, `scores` are the raw cosine maxima,
+/// and `top_phrase` is the phrase with the highest positive cosine similarity.
+pub fn classify_with_mlp(text_embedding: &Embedding, trained_model: &TrainedModel) -> BinaryResult {
+    // Compute cosine features: [max_pos, max_neg, margin].
+    let cosine = compute_cosine_features(
+        text_embedding,
+        &trained_model.pos_embeddings,
+        &trained_model.neg_embeddings,
+    );
+
+    // Build 387-dim input: embedding (384) + cosine features (3).
+    let mut input_vec: Vec<f32> = Vec::with_capacity(text_embedding.len() + 3);
+    input_vec.extend_from_slice(text_embedding);
+    input_vec.extend_from_slice(&cosine);
+
+    let input_dim = input_vec.len();
+
+    // Create Burn tensor and run forward pass.
+    let device = <NdArray<f32> as Backend>::Device::default();
+    let data = TensorData::new(input_vec, [1, input_dim]);
+    let input = Tensor::<NdArray<f32>, 2>::from_data(data, &device);
+
+    let output = trained_model.classifier.forward(input);
+    let confidence: f32 = output.into_scalar().elem();
+
+    // Get top phrase from positive embeddings using best_match.
+    let (_pos_score, top_phrase) = best_match(
+        text_embedding,
+        &trained_model.pos_embeddings,
+        &trained_model.pos_phrases,
+    );
+
+    BinaryResult {
+        is_match: confidence > 0.5,
+        confidence,
+        top_phrase,
+        scores: BinaryScores {
+            positive: cosine[0], // max_pos
+            negative: cosine[1], // max_neg
+        },
+    }
 }
 
 /// Find the best matching phrase and its similarity score.
@@ -152,5 +215,88 @@ fn best_match(query: &Embedding, embeddings: &[Embedding], phrases: &[String]) -
         (0.0, String::new())
     } else {
         (best_score, best_phrase)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mlp::{MlpConfig, TrainedModel};
+    use burn::backend::NdArray;
+
+    type TestBackend = NdArray;
+
+    /// Helper: create a 384-dim embedding with a given base value and slight variation.
+    fn synthetic_embedding(base: f32) -> Embedding {
+        (0..384).map(|i| base + (i as f32) * 0.001).collect()
+    }
+
+    /// Helper: build a TrainedModel with synthetic embeddings for testing.
+    fn make_trained_model() -> TrainedModel {
+        let config = MlpConfig::new();
+        let device = <TestBackend as Backend>::Device::default();
+        let classifier = config.init::<TestBackend>(&device);
+
+        let pos_emb = vec![synthetic_embedding(0.5), synthetic_embedding(0.7)];
+        let neg_emb = vec![synthetic_embedding(-0.5), synthetic_embedding(-0.3)];
+        let pos_phrases = vec!["positive one".to_string(), "positive two".to_string()];
+
+        TrainedModel {
+            reference_set_name: "test-set".to_string(),
+            content_hash: "testhash".to_string(),
+            classifier,
+            pos_embeddings: pos_emb,
+            neg_embeddings: neg_emb,
+            pos_phrases,
+        }
+    }
+
+    #[test]
+    fn classify_with_mlp_returns_valid_binary_result() {
+        let model = make_trained_model();
+        let text_embedding = synthetic_embedding(0.6);
+
+        let result = classify_with_mlp(&text_embedding, &model);
+
+        // Confidence must be in (0, 1) — sigmoid output.
+        assert!(
+            result.confidence > 0.0 && result.confidence < 1.0,
+            "confidence = {} is not in (0, 1)",
+            result.confidence
+        );
+
+        // is_match must be consistent with confidence threshold.
+        assert_eq!(
+            result.is_match,
+            result.confidence > 0.5,
+            "is_match should equal confidence > 0.5"
+        );
+
+        // top_phrase must be one of the positive phrases.
+        assert!(
+            result.top_phrase == "positive one" || result.top_phrase == "positive two",
+            "top_phrase = '{}' is not a known positive phrase",
+            result.top_phrase
+        );
+    }
+
+    #[test]
+    fn classify_with_mlp_scores_are_valid_cosine_values() {
+        let model = make_trained_model();
+        let text_embedding = synthetic_embedding(0.6);
+
+        let result = classify_with_mlp(&text_embedding, &model);
+
+        // Cosine similarity values must be in [-1, 1].
+        assert!(
+            result.scores.positive >= -1.0 && result.scores.positive <= 1.0,
+            "scores.positive = {} is not in [-1, 1]",
+            result.scores.positive
+        );
+        assert!(
+            result.scores.negative >= -1.0 && result.scores.negative <= 1.0,
+            "scores.negative = {} is not in [-1, 1]",
+            result.scores.negative
+        );
     }
 }

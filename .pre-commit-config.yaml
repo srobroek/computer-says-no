@@ -53,3 +53,12 @@ repos:
     hooks:
       - id: cocogitto-verify
         stages: [commit-msg]
+
+  - repo: local
+    hooks:
+      - id: no-ai-attribution
+        name: no AI attribution
+        entry: "bash -c 'if grep -iE \"co-authored-by.*(claude|anthropic|noreply@anthropic)|generated.by.*(claude|ai)|AI.assisted|AI.generated\" \"$1\" 2>/dev/null; then echo \"AI attribution found. Remove it.\"; exit 1; fi'"
+        language: system
+        stages: [commit-msg]
+        always_run: true

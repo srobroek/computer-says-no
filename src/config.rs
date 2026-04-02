@@ -5,20 +5,34 @@ use serde::Deserialize;
 
 use crate::model::ModelChoice;
 
+/// On-disk TOML `[mlp]` section.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct MlpFileConfig {
+    fallback: Option<bool>,
+    learning_rate: Option<f64>,
+    weight_decay: Option<f64>,
+    max_epochs: Option<usize>,
+    patience: Option<usize>,
+}
+
 /// On-disk TOML config structure (~/.config/computer-says-no/config.toml).
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 struct FileConfig {
+    host: Option<String>,
     port: Option<u16>,
     model: Option<String>,
     log_level: Option<String>,
     sets_dir: Option<PathBuf>,
     cache_dir: Option<PathBuf>,
+    mlp: Option<MlpFileConfig>,
 }
 
 /// Resolved application configuration (all layers merged).
 #[derive(Debug, Clone)]
 pub struct AppConfig {
+    pub host: String,
     pub port: u16,
     pub model: ModelChoice,
     pub log_level: String,
@@ -27,6 +41,11 @@ pub struct AppConfig {
     pub config_dir: PathBuf,
     pub cache_dir: PathBuf,
     pub datasets_dir: PathBuf,
+    pub mlp_fallback: bool,
+    pub mlp_learning_rate: f64,
+    pub mlp_weight_decay: f64,
+    pub mlp_max_epochs: usize,
+    pub mlp_patience: usize,
 }
 
 /// CLI overrides — fields provided via command-line flags.
@@ -41,13 +60,24 @@ pub struct CliOverrides {
 }
 
 impl AppConfig {
+    const DEFAULT_HOST: &'static str = "127.0.0.1";
     const DEFAULT_PORT: u16 = 9847;
     const DEFAULT_LOG_LEVEL: &'static str = "warn";
+    const DEFAULT_MLP_FALLBACK: bool = false;
+    const DEFAULT_MLP_LEARNING_RATE: f64 = 0.001;
+    const DEFAULT_MLP_WEIGHT_DECAY: f64 = 0.001;
+    const DEFAULT_MLP_MAX_EPOCHS: usize = 500;
+    const DEFAULT_MLP_PATIENCE: usize = 10;
 
     /// Load config with 3-layer precedence: CLI > env > TOML file > defaults.
     pub fn load(overrides: CliOverrides) -> Result<Self> {
         let config_dir = Self::config_dir();
         let file_config = Self::load_file(&config_dir);
+
+        let host = std::env::var("CSN_HOST")
+            .ok()
+            .or(file_config.host)
+            .unwrap_or_else(|| Self::DEFAULT_HOST.to_string());
 
         let port = overrides
             .port
@@ -84,7 +114,28 @@ impl AppConfig {
             .or_else(|| std::env::var("CSN_DATASETS_DIR").ok().map(PathBuf::from))
             .unwrap_or_else(|| PathBuf::from("datasets"));
 
+        let mlp_file = file_config.mlp.unwrap_or_default();
+
+        let mlp_fallback = std::env::var("CSN_MLP_FALLBACK")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .or(mlp_file.fallback)
+            .unwrap_or(Self::DEFAULT_MLP_FALLBACK);
+
+        let mlp_learning_rate = mlp_file
+            .learning_rate
+            .unwrap_or(Self::DEFAULT_MLP_LEARNING_RATE);
+
+        let mlp_weight_decay = mlp_file
+            .weight_decay
+            .unwrap_or(Self::DEFAULT_MLP_WEIGHT_DECAY);
+
+        let mlp_max_epochs = mlp_file.max_epochs.unwrap_or(Self::DEFAULT_MLP_MAX_EPOCHS);
+
+        let mlp_patience = mlp_file.patience.unwrap_or(Self::DEFAULT_MLP_PATIENCE);
+
         Ok(Self {
+            host,
             port,
             model,
             log_level,
@@ -92,6 +143,11 @@ impl AppConfig {
             config_dir,
             cache_dir,
             datasets_dir,
+            mlp_fallback,
+            mlp_learning_rate,
+            mlp_weight_decay,
+            mlp_max_epochs,
+            mlp_patience,
         })
     }
 
@@ -190,5 +246,51 @@ mod tests {
         // Port should be either 9847 (default) or whatever CSN_PORT is set to in env
         // We can't assert exact value without controlling env, but we verify it loads
         assert!(config.port > 0);
+    }
+
+    #[test]
+    fn mlp_defaults_load_correctly() {
+        let config = AppConfig::load(CliOverrides::default()).unwrap();
+        // Unless CSN_MLP_FALLBACK is set in the environment, fallback should be false
+        // (matching DEFAULT_MLP_FALLBACK). The other fields have no env var overrides.
+        assert_eq!(config.mlp_learning_rate, 0.001);
+        assert_eq!(config.mlp_weight_decay, 0.001);
+        assert_eq!(config.mlp_max_epochs, 500);
+        assert_eq!(config.mlp_patience, 10);
+    }
+
+    #[test]
+    fn mlp_file_config_deserializes_from_toml() {
+        let toml_str = r#"
+            port = 9999
+            [mlp]
+            fallback = true
+            learning_rate = 0.01
+            weight_decay = 0.0005
+            max_epochs = 200
+            patience = 5
+        "#;
+        let file_config: FileConfig = toml::from_str(toml_str).unwrap();
+        let mlp = file_config.mlp.unwrap();
+        assert_eq!(mlp.fallback, Some(true));
+        assert_eq!(mlp.learning_rate, Some(0.01));
+        assert_eq!(mlp.weight_decay, Some(0.0005));
+        assert_eq!(mlp.max_epochs, Some(200));
+        assert_eq!(mlp.patience, Some(5));
+    }
+
+    #[test]
+    fn mlp_file_config_partial_toml() {
+        let toml_str = r#"
+            [mlp]
+            fallback = true
+        "#;
+        let file_config: FileConfig = toml::from_str(toml_str).unwrap();
+        let mlp = file_config.mlp.unwrap();
+        assert_eq!(mlp.fallback, Some(true));
+        assert_eq!(mlp.learning_rate, None);
+        assert_eq!(mlp.weight_decay, None);
+        assert_eq!(mlp.max_epochs, None);
+        assert_eq!(mlp.patience, None);
     }
 }

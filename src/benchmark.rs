@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::classifier;
 use crate::dataset::{LabeledDataset, LabeledPrompt, Polarity, Tier};
 use crate::model::{EmbeddingEngine, ModelChoice};
-use crate::reference_set::load_all_reference_sets;
+use crate::reference_set::{ReferenceSetKind, load_all_reference_sets};
 
 /// Configuration for a benchmark run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,7 +162,7 @@ pub fn calibrate_adaptive_threshold(
 
     let mut pos_scores: Vec<f32> = Vec::new();
     for prompt in negative_prompts {
-        if let Ok(result) = classifier::classify_text(engine, &prompt.text, ref_set) {
+        if let Ok(result) = classifier::classify_text(engine, &prompt.text, ref_set, None) {
             match &result {
                 classifier::ClassifyResult::Binary(r) => pos_scores.push(r.scores.positive),
                 classifier::ClassifyResult::MultiCategory(r) => pos_scores.push(r.confidence),
@@ -230,13 +230,13 @@ pub fn compare_strategies(
         .prompts
         .iter()
         .filter_map(|p| {
-            classifier::classify_text(engine, &p.text, ref_set)
+            classifier::classify_text(engine, &p.text, ref_set, None)
                 .ok()
                 .map(|r| (p, r))
         })
         .collect();
 
-    strategies
+    let mut strategy_results: Vec<(String, f64)> = strategies
         .iter()
         .map(|&strategy| {
             let correct = results
@@ -252,7 +252,56 @@ pub fn compare_strategies(
             };
             (strategy.name(), accuracy)
         })
-        .collect()
+        .collect();
+
+    // Attempt to add "combined" (MLP) strategy for binary sets with negatives.
+    if let ReferenceSetKind::Binary(bin) = &ref_set.kind
+        && !bin.negative.is_empty()
+        && let Ok(mlp_classifier) = crate::mlp::train_mlp(
+            &bin.positive,
+            &bin.negative,
+            0.001, // learning_rate
+            0.001, // weight_decay
+            500,   // max_epochs
+            10,    // patience
+        )
+    {
+        let trained_model = crate::mlp::TrainedModel {
+            reference_set_name: ref_set.metadata.name.clone(),
+            content_hash: ref_set.content_hash.clone(),
+            classifier: mlp_classifier,
+            pos_embeddings: bin.positive.clone(),
+            neg_embeddings: bin.negative.clone(),
+            pos_phrases: bin.positive_phrases.clone(),
+        };
+
+        let correct = results
+            .iter()
+            .filter(|(prompt, _)| {
+                let emb = engine.embed_one(&prompt.text).ok();
+                if let Some(emb) = emb {
+                    let mlp_result = classifier::classify_with_mlp(&emb, &trained_model);
+                    match prompt.polarity {
+                        Polarity::Positive => {
+                            mlp_result.is_match == (prompt.expected_label != "no_match")
+                        }
+                        Polarity::Negative => !mlp_result.is_match,
+                    }
+                } else {
+                    false
+                }
+            })
+            .count();
+
+        let accuracy = if results.is_empty() {
+            0.0
+        } else {
+            correct as f64 / results.len() as f64
+        };
+        strategy_results.push(("combined".to_string(), accuracy));
+    }
+
+    strategy_results
 }
 
 /// Check if a classification result is correct for a labeled prompt.
@@ -335,7 +384,7 @@ fn measure_dataset(
     // Warm-up
     for _ in 0..warmup {
         if let Some(prompt) = ds.prompts.first() {
-            let _ = classifier::classify_text(engine, &prompt.text, ref_set);
+            let _ = classifier::classify_text(engine, &prompt.text, ref_set, None);
         }
     }
 
@@ -347,7 +396,7 @@ fn measure_dataset(
         let mut correct = false;
         for i in 0..iterations {
             let start = Instant::now();
-            let result = classifier::classify_text(engine, &prompt.text, ref_set)
+            let result = classifier::classify_text(engine, &prompt.text, ref_set, None)
                 .with_context(|| format!("classifying '{}' with {}", prompt.text, model))?;
             all_latencies.push(start.elapsed());
 
@@ -422,6 +471,9 @@ fn compute_precision_recall(
 }
 
 /// Run the full benchmark across models and datasets.
+///
+/// If `partial_output` is provided, intermediate results are written after each
+/// model completes so partial data survives interruption.
 pub fn run_benchmark(
     models: &[ModelChoice],
     datasets: &[LabeledDataset],
@@ -429,6 +481,7 @@ pub fn run_benchmark(
     cache_dir: &Path,
     warmup: usize,
     iterations: usize,
+    partial_output: Option<&Path>,
 ) -> Result<BenchmarkRun> {
     let total_steps = models.len() * datasets.len();
     let pb = ProgressBar::new(total_steps as u64);
@@ -483,6 +536,30 @@ pub fn run_benchmark(
             cold_startup_ms,
             datasets: dataset_results,
         });
+
+        // Write partial results so data survives interruption
+        if let Some(path) = partial_output {
+            let partial = BenchmarkRun {
+                timestamp: format!(
+                    "{}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs()
+                ),
+                config: BenchmarkConfig {
+                    models: models.iter().map(|m| m.as_str().to_string()).collect(),
+                    datasets: datasets.iter().map(|d| d.name.clone()).collect(),
+                    warmup_iterations: warmup,
+                    measured_iterations: iterations,
+                },
+                results: results.clone(),
+                system_info: format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
+            };
+            if let Ok(json_str) = serde_json::to_string_pretty(&partial) {
+                let _ = std::fs::write(path, json_str);
+            }
+        }
     }
 
     pb.finish_with_message("done");
@@ -519,6 +596,7 @@ pub fn print_table(run: &BenchmarkRun) {
             Cell::new("p50 (ms)"),
             Cell::new("p95 (ms)"),
             Cell::new("p99 (ms)"),
+            Cell::new("CV"),
             Cell::new("Cold (s)"),
         ]);
 
@@ -534,6 +612,12 @@ pub fn print_table(run: &BenchmarkRun) {
                     best_model = model_result.model.clone();
                 }
 
+                let cv_display = if ds.latency_cv > 0.3 {
+                    format!("{:.0}% ⚠", ds.latency_cv * 100.0)
+                } else {
+                    format!("{:.0}%", ds.latency_cv * 100.0)
+                };
+
                 table.add_row(vec![
                     Cell::new(&model_result.model),
                     Cell::new(format!("{:.1}%", ds.accuracy * 100.0)),
@@ -541,6 +625,7 @@ pub fn print_table(run: &BenchmarkRun) {
                     Cell::new(format!("{:.1}", ds.latency_p50_ms)),
                     Cell::new(format!("{:.1}", ds.latency_p95_ms)),
                     Cell::new(format!("{:.1}", ds.latency_p99_ms)),
+                    Cell::new(cv_display),
                     Cell::new(format!("{:.1}", model_result.cold_startup_ms / 1000.0)),
                 ]);
             }
@@ -579,31 +664,43 @@ pub fn print_comparison(current: &BenchmarkRun, previous: &BenchmarkRun) {
 
             if let (Some(curr), Some(prev)) = (curr_ds, prev_ds) {
                 let acc_diff = (curr.accuracy - prev.accuracy) * 100.0;
-                let lat_diff_pct = if prev.latency_p50_ms > 0.0 {
-                    ((curr.latency_p50_ms - prev.latency_p50_ms) / prev.latency_p50_ms) * 100.0
-                } else {
-                    0.0
-                };
+
+                let lat_pct =
+                    |c: f64, p: f64| -> f64 { if p > 0.0 { ((c - p) / p) * 100.0 } else { 0.0 } };
+
+                let p50_diff = lat_pct(curr.latency_p50_ms, prev.latency_p50_ms);
+                let p95_diff = lat_pct(curr.latency_p95_ms, prev.latency_p95_ms);
+                let p99_diff = lat_pct(curr.latency_p99_ms, prev.latency_p99_ms);
+
+                let cold_diff = lat_pct(curr_model.cold_startup_ms, prev_model.cold_startup_ms);
 
                 let arrow = if acc_diff >= 0.0 { "▲" } else { "▼" };
-                let warn = if acc_diff < -1.0 || lat_diff_pct > 20.0 {
-                    " ⚠️"
-                } else {
-                    ""
+                let warn =
+                    if acc_diff < -1.0 || p50_diff > 20.0 || p95_diff > 20.0 || p99_diff > 20.0 {
+                        " ⚠️"
+                    } else {
+                        ""
+                    };
+
+                let fmt_lat = |c: f64, p: f64, diff: f64| -> String {
+                    let a = if diff <= 0.0 { "▼" } else { "▲" };
+                    format!("{:.1}→{:.1}ms ({}{:.0}%)", p, c, a, diff.abs())
                 };
 
-                let lat_arrow = if lat_diff_pct <= 0.0 { "▼" } else { "▲" };
                 println!(
-                    "  {}: accuracy {:.1}% → {:.1}% ({}{:.1}%), p50 {:.1}ms → {:.1}ms ({}{:.0}%){}",
+                    "  {}: acc {:.1}%→{:.1}% ({}{:.1}%), p50 {}, p95 {}, p99 {}, cold {:.1}→{:.1}s ({}{:.0}%){}",
                     curr_model.model,
                     prev.accuracy * 100.0,
                     curr.accuracy * 100.0,
                     arrow,
                     acc_diff.abs(),
-                    prev.latency_p50_ms,
-                    curr.latency_p50_ms,
-                    lat_arrow,
-                    lat_diff_pct.abs(),
+                    fmt_lat(curr.latency_p50_ms, prev.latency_p50_ms, p50_diff),
+                    fmt_lat(curr.latency_p95_ms, prev.latency_p95_ms, p95_diff),
+                    fmt_lat(curr.latency_p99_ms, prev.latency_p99_ms, p99_diff),
+                    prev_model.cold_startup_ms / 1000.0,
+                    curr_model.cold_startup_ms / 1000.0,
+                    if cold_diff <= 0.0 { "▼" } else { "▲" },
+                    cold_diff.abs(),
                     warn
                 );
             }
@@ -618,7 +715,7 @@ mod tests {
 
     #[test]
     fn percentile_basic() {
-        let durations: Vec<Duration> = (1..=100).map(|i| Duration::from_millis(i)).collect();
+        let durations: Vec<Duration> = (1..=100).map(Duration::from_millis).collect();
         assert_eq!(percentile(&durations, 50.0), Duration::from_millis(50));
         assert_eq!(percentile(&durations, 95.0), Duration::from_millis(95));
         assert_eq!(percentile(&durations, 99.0), Duration::from_millis(99));
@@ -637,7 +734,7 @@ mod tests {
 
     #[test]
     fn cv_varied_values() {
-        let durations: Vec<Duration> = (1..=10).map(|i| Duration::from_millis(i)).collect();
+        let durations: Vec<Duration> = (1..=10).map(Duration::from_millis).collect();
         let cv = coefficient_of_variation(&durations);
         assert!(cv > 0.0 && cv < 1.0);
     }
