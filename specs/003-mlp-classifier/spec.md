@@ -110,8 +110,8 @@ When the file watcher detects a reference set change at runtime, the MLP model r
 ### Functional Requirements
 
 - **FR-001**: System MUST automatically use the combined pipeline (embedding + cosine features → MLP) for binary reference sets that have a trained MLP model, with no API changes. The response shape (`is_match`, `confidence`, `top_phrase`, `scores`) MUST remain unchanged. When MLP is active, `confidence` MUST be the MLP sigmoid probability (0.0-1.0) and `scores.positive`/`scores.negative` MUST remain as raw cosine similarity values.
-- **FR-002**: System MUST train the MLP classifier automatically at daemon startup from reference set positive and negative phrase embeddings.
-- **FR-003**: System MUST use a 2-layer architecture with combined input: embedding (384-dim) concatenated with cosine features (max positive similarity, max negative similarity, margin) = 387-dim input → hidden layer 1 (256 units, ReLU) → hidden layer 2 (128 units, ReLU) → output (1 unit, sigmoid).
+- **FR-002**: System MUST train the MLP classifier automatically at daemon startup and standalone classify invocation from reference set positive and negative phrase embeddings.
+- **FR-003**: System MUST use a 2-layer architecture with combined input: embedding concatenated with cosine features (max positive similarity, max negative similarity, margin) = embedding_dim + 3 input (computed at runtime from the embedding model's output dimension) → hidden layer 1 (256 units, ReLU) → hidden layer 2 (128 units, ReLU) → output (1 unit, sigmoid).
 - **FR-004**: System MUST cache trained model weights to disk, keyed by a content hash of the reference set phrases.
 - **FR-005**: System MUST invalidate the weight cache when reference set content changes (phrases added, removed, or modified).
 - **FR-006**: System MUST skip MLP training for reference sets that lack negative phrases, falling back to pure cosine classification with a log message.

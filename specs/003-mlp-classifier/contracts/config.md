@@ -16,10 +16,18 @@ fallback = false
 # patience = 10
 ```
 
+## Server Configuration (added in spec 003)
+
+```toml
+# Bind address for the daemon (default: 127.0.0.1)
+host = "127.0.0.1"
+```
+
 ## Environment Variable Overrides
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `CSN_HOST` | `127.0.0.1` | Server bind address |
 | `CSN_MLP_FALLBACK` | `false` | Fall back to cosine on training failure |
 
 ## Cache Layout

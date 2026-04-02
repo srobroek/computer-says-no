@@ -91,7 +91,7 @@ tests/
 ### Phase 3: Startup & Cache (main.rs, server.rs)
 
 10. Train MLP at daemon startup after reference sets load
-11. Store `TrainedModel` in `AppState` (behind `RwLock` like reference sets)
+11. Store `TrainedModel` in `AppState` (behind `Mutex` — NdArray backend is !Sync)
 12. Implement cache check: load from `.mpk` if content hash matches, else train
 13. Handle training failure: error or fallback based on config
 
