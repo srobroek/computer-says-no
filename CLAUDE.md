@@ -57,7 +57,7 @@ just clean        # cargo clean
 
 ## Testing
 
-- Unit tests: `cargo test --bin csn` (25 tests: config, model, classifier, reference_set, watcher, embedding_cache, benchmark, dataset)
+- Unit tests: `cargo test --bin csn` (40 tests: config, model, classifier, reference_set, watcher, embedding_cache, benchmark, dataset, mlp)
 - Integration: `cargo test --test integration_test` (starts daemon subprocess, tests all REST endpoints)
 - Benchmark tests: `cargo test --test benchmark_test` (validates dataset structure, labels, tier distribution)
 - Benchmarks: `just bench` (runs `csn benchmark run` — requires model download, not available in CI/sandbox)
@@ -71,5 +71,6 @@ just clean        # cargo clean
 - MLP weight cache in `~/.cache/computer-says-no/mlp/{hash}.mpk` (Burn NamedMpkFileRecorder) (003-mlp-classifier)
 
 ## Recent Changes
+- 003-mlp-classifier: MLP binary classifier — Burn framework, combined pipeline (embedding + cosine features → MLP), 94.4% accuracy, weight caching, hot-reload retrain, configurable host, 40 unit tests + integration test + manual benchmark script
 - 002-model-benchmark-harness: Benchmark harness — 12-model comparison, 6 datasets (500 prompts each), strategy comparison, table/JSON output, regression detection
 - 001-core-binary-cli: Full implementation — config, server (RwLock + graceful shutdown), CLI (thin HTTP + standalone), file watcher, embedding cache (blake3), 17 unit tests + integration test
