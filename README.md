@@ -36,9 +36,15 @@ cargo install computer-says-no
 
 This installs the `csn` binary to `~/.cargo/bin/`. Requires Rust 1.92+. The ONNX model (~500MB) downloads on first run.
 
-After installing, copy the default reference sets:
+After installing, download the default reference sets:
 
 ```fish
+# macOS
+mkdir -p ~/Library/Application\ Support/computer-says-no/reference-sets
+curl -o ~/Library/Application\ Support/computer-says-no/reference-sets/corrections.toml \
+  https://raw.githubusercontent.com/srobroek/computer-says-no/main/reference-sets/corrections.toml
+
+# Linux
 mkdir -p ~/.config/computer-says-no/reference-sets
 curl -o ~/.config/computer-says-no/reference-sets/corrections.toml \
   https://raw.githubusercontent.com/srobroek/computer-says-no/main/reference-sets/corrections.toml
