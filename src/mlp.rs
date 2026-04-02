@@ -242,6 +242,11 @@ pub fn train_mlp(
         model = optim.step(learning_rate, model, grads);
     }
 
+    // FR-012: refuse if training never converged (loss never decreased from initial).
+    if best_loss == f64::INFINITY {
+        anyhow::bail!("MLP training failed to converge: loss never decreased");
+    }
+
     Ok(model.valid())
 }
 
