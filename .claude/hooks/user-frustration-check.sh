@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Hook: UserPromptSubmit — classify user prompt for frustration/corrections
 # Uses csn CLI to check if the user's message matches the "corrections" reference set.
+# Threshold is configurable via CSN_FRUSTRATION_THRESHOLD (default: 0.80).
 
 INPUT=$(cat)
 USER_MESSAGE=$(echo "$INPUT" | jq -r '.prompt // empty')
 
 [ -z "$USER_MESSAGE" ] && exit 0
 
+# Configurable threshold (default 80%)
+THRESHOLD="${CSN_FRUSTRATION_THRESHOLD:-0.80}"
 
 # Find the csn binary (release build in this repo)
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
@@ -22,8 +25,7 @@ CONFIDENCE=$(echo "$RESULT" | jq -r '.confidence')
 TOP_PHRASE=$(echo "$RESULT" | jq -r '.top_phrase')
 
 if [ "$IS_MATCH" = "true" ]; then
-  # Threshold: only flag high-confidence matches
-  HIGH=$(echo "$CONFIDENCE" | awk '{ print ($1 > 0.85) ? "yes" : "no" }')
+  HIGH=$(echo "$CONFIDENCE $THRESHOLD" | awk '{ print ($1 > $2) ? "yes" : "no" }')
   if [ "$HIGH" = "yes" ]; then
     CONF_PCT=$(echo "$CONFIDENCE" | awk '{ printf "%.0f", $1 * 100 }')
     jq -n --arg conf "$CONF_PCT" --arg phrase "$TOP_PHRASE" --arg msg "$USER_MESSAGE" '{
