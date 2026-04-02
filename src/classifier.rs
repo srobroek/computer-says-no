@@ -2,7 +2,7 @@ use burn::backend::NdArray;
 use burn::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::mlp::{TrainedModel, compute_cosine_features};
+use crate::mlp::{CHAR_NGRAM_DIM, TrainedModel, char_ngram_features, compute_cosine_features};
 use crate::model::{Embedding, EmbeddingEngine, cosine_similarity};
 use crate::reference_set::{ReferenceSet, ReferenceSetKind};
 
@@ -65,12 +65,13 @@ impl ClassifyResult {
     }
 }
 
-/// Classify text against a reference set.
+/// Classify text against a reference set, with original text for character features.
 ///
 /// When `trained_model` is `Some` and the reference set is binary, the MLP
-/// classifier is used instead of the pure cosine path.
-pub fn classify(
+/// classifier is used with both embedding and character n-gram features.
+fn classify_with_text(
     text_embedding: &Embedding,
+    text: &str,
     reference_set: &ReferenceSet,
     trained_model: Option<&TrainedModel>,
 ) -> ClassifyResult {
@@ -79,7 +80,7 @@ pub fn classify(
     match &reference_set.kind {
         ReferenceSetKind::Binary(binary) => {
             if let Some(model) = trained_model {
-                return ClassifyResult::Binary(classify_with_mlp(text_embedding, model));
+                return ClassifyResult::Binary(classify_with_mlp(text_embedding, text, model));
             }
 
             let (pos_score, pos_phrase) =
@@ -147,7 +148,12 @@ pub fn classify_text(
     trained_model: Option<&TrainedModel>,
 ) -> anyhow::Result<ClassifyResult> {
     let embedding = engine.embed_one(text)?;
-    Ok(classify(&embedding, reference_set, trained_model))
+    Ok(classify_with_text(
+        &embedding,
+        text,
+        reference_set,
+        trained_model,
+    ))
 }
 
 /// Classify a text embedding using a trained MLP model.
@@ -157,7 +163,11 @@ pub fn classify_text(
 /// input vector, and runs the MLP forward pass. Returns a `BinaryResult` where
 /// `confidence` is the MLP sigmoid output, `scores` are the raw cosine maxima,
 /// and `top_phrase` is the phrase with the highest positive cosine similarity.
-pub fn classify_with_mlp(text_embedding: &Embedding, trained_model: &TrainedModel) -> BinaryResult {
+pub fn classify_with_mlp(
+    text_embedding: &Embedding,
+    text: &str,
+    trained_model: &TrainedModel,
+) -> BinaryResult {
     // Compute cosine features: [max_pos, max_neg, margin].
     let cosine = compute_cosine_features(
         text_embedding,
@@ -165,10 +175,14 @@ pub fn classify_with_mlp(text_embedding: &Embedding, trained_model: &TrainedMode
         &trained_model.neg_embeddings,
     );
 
-    // Build 387-dim input: embedding (384) + cosine features (3).
-    let mut input_vec: Vec<f32> = Vec::with_capacity(text_embedding.len() + 3);
+    // Compute character n-gram features (256-dim).
+    let char_feats = char_ngram_features(text);
+
+    // Build 643-dim input: embedding (384) + cosine features (3) + char n-grams (256).
+    let mut input_vec: Vec<f32> = Vec::with_capacity(text_embedding.len() + 3 + CHAR_NGRAM_DIM);
     input_vec.extend_from_slice(text_embedding);
     input_vec.extend_from_slice(&cosine);
+    input_vec.extend_from_slice(&char_feats);
 
     let input_dim = input_vec.len();
 
@@ -233,7 +247,7 @@ mod tests {
 
     /// Helper: build a TrainedModel with synthetic embeddings for testing.
     fn make_trained_model() -> TrainedModel {
-        let config = MlpConfig::new();
+        let config = MlpConfig::new().with_input_dim(384 + 3 + CHAR_NGRAM_DIM);
         let device = <TestBackend as Backend>::Device::default();
         let classifier = config.init::<TestBackend>(&device);
 
@@ -256,7 +270,7 @@ mod tests {
         let model = make_trained_model();
         let text_embedding = synthetic_embedding(0.6);
 
-        let result = classify_with_mlp(&text_embedding, &model);
+        let result = classify_with_mlp(&text_embedding, "test text", &model);
 
         // Confidence must be in (0, 1) — sigmoid output.
         assert!(
@@ -285,7 +299,7 @@ mod tests {
         let model = make_trained_model();
         let text_embedding = synthetic_embedding(0.6);
 
-        let result = classify_with_mlp(&text_embedding, &model);
+        let result = classify_with_mlp(&text_embedding, "test text", &model);
 
         // Cosine similarity values must be in [-1, 1].
         assert!(

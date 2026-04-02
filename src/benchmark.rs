@@ -260,6 +260,8 @@ pub fn compare_strategies(
         && let Ok(mlp_classifier) = crate::mlp::train_mlp(
             &bin.positive,
             &bin.negative,
+            &bin.positive_phrases,
+            &bin.negative_phrases,
             0.001, // learning_rate
             0.001, // weight_decay
             500,   // max_epochs
@@ -280,7 +282,8 @@ pub fn compare_strategies(
             .filter(|(prompt, _)| {
                 let emb = engine.embed_one(&prompt.text).ok();
                 if let Some(emb) = emb {
-                    let mlp_result = classifier::classify_with_mlp(&emb, &trained_model);
+                    let mlp_result =
+                        classifier::classify_with_mlp(&emb, &prompt.text, &trained_model);
                     match prompt.polarity {
                         Polarity::Positive => {
                             mlp_result.is_match == (prompt.expected_label != "no_match")
