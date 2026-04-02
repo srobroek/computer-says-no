@@ -501,4 +501,64 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn classify_with_text_routes_to_multi_mlp() {
+        use crate::reference_set::{
+            CategoryEmbeddings, Metadata, Mode, MultiCategoryEmbeddings, ReferenceSet,
+            ReferenceSetKind,
+        };
+        use std::collections::HashMap;
+        use std::path::PathBuf;
+
+        let model = make_trained_multi_model();
+
+        // Build a matching multi-category reference set.
+        let mut categories = HashMap::new();
+        categories.insert(
+            "alpha".to_string(),
+            CategoryEmbeddings {
+                embeddings: vec![synthetic_embedding(0.5), synthetic_embedding(0.7)],
+                phrases: vec!["alpha one".to_string(), "alpha two".to_string()],
+            },
+        );
+        categories.insert(
+            "beta".to_string(),
+            CategoryEmbeddings {
+                embeddings: vec![synthetic_embedding(-0.5), synthetic_embedding(-0.3)],
+                phrases: vec!["beta one".to_string(), "beta two".to_string()],
+            },
+        );
+
+        let ref_set = ReferenceSet {
+            metadata: Metadata {
+                name: "test-multi".to_string(),
+                description: None,
+                mode: Mode::MultiCategory,
+                threshold: 0.3,
+                source: None,
+            },
+            kind: ReferenceSetKind::MultiCategory(MultiCategoryEmbeddings { categories }),
+            content_hash: "test".to_string(),
+            source_path: PathBuf::from("/tmp/test.toml"),
+        };
+
+        let text_emb = synthetic_embedding(0.6);
+        let result = classify_with_text(&text_emb, "test", &ref_set, None, Some(&model));
+
+        // Should route through multi-cat MLP, producing a MultiCategory result.
+        match &result {
+            ClassifyResult::MultiCategory(r) => {
+                assert_eq!(r.all_scores.len(), 2);
+                let sum: f32 = r.all_scores.iter().map(|s| s.score).sum();
+                assert!(
+                    (sum - 1.0).abs() < 1e-4,
+                    "MLP softmax scores should sum to ~1.0, got {sum}"
+                );
+            }
+            ClassifyResult::Binary(_) => {
+                panic!("expected MultiCategory result, got Binary");
+            }
+        }
+    }
 }
