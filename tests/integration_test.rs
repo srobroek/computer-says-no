@@ -197,6 +197,7 @@ fn mcp_handshake(stdin: &mut impl Write, reader: &mut impl BufRead) {
 /// Run manually: `cargo test --test integration_test -- --ignored`
 #[test]
 #[ignore]
+#[cfg(unix)]
 fn daemon_self_exits_on_idle_timeout() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let bin = format!("{}/target/debug/csn", manifest_dir);

@@ -1,7 +1,9 @@
 name: Release
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
 
 permissions:
@@ -13,8 +15,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Always runs after CI passes on main.
+  # Creates/updates a version bump PR when there are releasable commits.
+  # No-op if a release PR already exists and is up to date.
   release-pr:
     name: Release PR
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,8 +37,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Only publishes when Cargo.toml version is ahead of crates.io.
+  # This happens after a release PR (which bumps the version) is merged
+  # and CI passes on that merge commit.
+  # On normal feature merges: no-op (version unchanged).
   release:
-    name: Create Release
+    name: Publish & GitHub Release
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -56,6 +67,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
+  # Only runs when release-plz actually created a release (version was bumped).
+  # Builds cross-platform binaries and attaches to the GitHub release.
   build-binaries:
     name: Build (${{ matrix.target }})
     needs: release
@@ -77,7 +90,7 @@ jobs:
       - name: Extract tag from releases
         id: extract
         shell: bash
-        run: echo "tag=$(echo '$RELEASES' | jq -r '.[0].tag')" >> "$GITHUB_OUTPUT"
+        run: echo "tag=$(echo "$RELEASES" | jq -r '.[0].tag')" >> "$GITHUB_OUTPUT"
         env:
           RELEASES: ${{ needs.release.outputs.releases }}
 
