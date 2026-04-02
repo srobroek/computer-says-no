@@ -50,9 +50,9 @@ curl -o ~/.config/computer-says-no/reference-sets/corrections.toml \
   https://raw.githubusercontent.com/srobroek/computer-says-no/main/reference-sets/corrections.toml
 ```
 
-### From GitHub releases
+### From GitHub releases (coming soon)
 
-Download a precompiled binary from [Releases](https://github.com/srobroek/computer-says-no/releases). No build tools needed — single binary, models cached locally on first run.
+Precompiled binaries for Linux, macOS, and Windows will be attached to [GitHub Releases](https://github.com/srobroek/computer-says-no/releases) once the release pipeline is active.
 
 ### From source
 
