@@ -233,3 +233,181 @@ impl ServerHandler for McpHandler {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::classifier::{BinaryResult, BinaryScores, ClassifyResult};
+    use crate::model::Embedding;
+    use crate::reference_set::{BinaryEmbeddings, Metadata, Mode, ReferenceSet, ReferenceSetKind};
+    use std::path::PathBuf;
+
+    fn synthetic_embedding(base: f32) -> Embedding {
+        (0..384).map(|i| base + (i as f32) * 0.001).collect()
+    }
+
+    fn make_reference_set(name: &str, positive_count: usize, negative_count: usize) -> ReferenceSet {
+        let pos_embeddings: Vec<Embedding> = (0..positive_count)
+            .map(|i| synthetic_embedding(0.5 + i as f32 * 0.1))
+            .collect();
+        let neg_embeddings: Vec<Embedding> = (0..negative_count)
+            .map(|i| synthetic_embedding(-0.5 - i as f32 * 0.1))
+            .collect();
+        let pos_phrases: Vec<String> = (0..positive_count)
+            .map(|i| format!("positive {i}"))
+            .collect();
+        let neg_phrases: Vec<String> = (0..negative_count)
+            .map(|i| format!("negative {i}"))
+            .collect();
+
+        ReferenceSet {
+            metadata: Metadata {
+                name: name.to_string(),
+                description: Some(format!("{name} description")),
+                mode: Mode::Binary,
+                threshold: 0.5,
+                source: None,
+            },
+            kind: ReferenceSetKind::Binary(BinaryEmbeddings {
+                positive: pos_embeddings,
+                positive_phrases: pos_phrases,
+                negative: neg_embeddings,
+                negative_phrases: neg_phrases,
+            }),
+            content_hash: "testhash".to_string(),
+            source_path: PathBuf::from("/tmp/test.toml"),
+        }
+    }
+
+    #[test]
+    fn tools_list_contains_four_tools() {
+        let tools = CsnTools::tools();
+        assert_eq!(tools.len(), 4);
+        let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+        assert!(names.contains(&"classify"));
+        assert!(names.contains(&"list_sets"));
+        assert!(names.contains(&"embed"));
+        assert!(names.contains(&"similarity"));
+    }
+
+    #[test]
+    fn list_sets_returns_correct_metadata() {
+        let sets = vec![
+            make_reference_set("corrections", 3, 2),
+            make_reference_set("safety", 5, 0),
+        ];
+
+        let sets_json: Vec<serde_json::Value> = sets
+            .iter()
+            .map(|s| {
+                let mode = match &s.kind {
+                    ReferenceSetKind::Binary(_) => "binary",
+                    ReferenceSetKind::MultiCategory(_) => "multi-category",
+                };
+                serde_json::json!({
+                    "name": s.metadata.name,
+                    "mode": mode,
+                    "phrase_count": s.phrase_count(),
+                })
+            })
+            .collect();
+
+        assert_eq!(sets_json.len(), 2);
+
+        assert_eq!(sets_json[0]["name"], "corrections");
+        assert_eq!(sets_json[0]["mode"], "binary");
+        assert_eq!(sets_json[0]["phrase_count"], 5); // 3 pos + 2 neg
+
+        assert_eq!(sets_json[1]["name"], "safety");
+        assert_eq!(sets_json[1]["mode"], "binary");
+        assert_eq!(sets_json[1]["phrase_count"], 5); // 5 pos + 0 neg
+    }
+
+    #[test]
+    fn list_sets_empty_returns_empty_array() {
+        let sets: Vec<ReferenceSet> = vec![];
+        let sets_json: Vec<serde_json::Value> = sets
+            .iter()
+            .map(|s| {
+                serde_json::json!({
+                    "name": s.metadata.name,
+                    "mode": "binary",
+                    "phrase_count": s.phrase_count(),
+                })
+            })
+            .collect();
+
+        assert!(sets_json.is_empty());
+        let json = serde_json::to_string_pretty(&sets_json).unwrap();
+        assert_eq!(json, "[]");
+    }
+
+    #[test]
+    fn classify_result_serializes_with_expected_fields() {
+        let result = ClassifyResult::Binary(BinaryResult {
+            is_match: true,
+            confidence: 0.85,
+            top_phrase: "test phrase".to_string(),
+            scores: BinaryScores {
+                positive: 0.9,
+                negative: 0.3,
+            },
+        });
+
+        let json = serde_json::to_string_pretty(&result).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed["match"], true);
+        assert!(parsed["confidence"].as_f64().unwrap() > 0.8);
+        assert_eq!(parsed["top_phrase"], "test phrase");
+        assert!(parsed["scores"]["positive"].as_f64().is_some());
+        assert!(parsed["scores"]["negative"].as_f64().is_some());
+    }
+
+    #[test]
+    fn embed_result_has_expected_json_structure() {
+        let embedding = synthetic_embedding(0.5);
+        let model_name = ModelChoice::default().as_str().to_string();
+        let json_val = serde_json::json!({
+            "embedding": embedding,
+            "dimensions": embedding.len(),
+            "model": model_name,
+        });
+
+        assert_eq!(json_val["dimensions"], 384);
+        assert_eq!(json_val["embedding"].as_array().unwrap().len(), 384);
+        assert!(json_val["model"].as_str().is_some());
+    }
+
+    #[test]
+    fn similarity_identical_embeddings_near_one() {
+        let emb_a = synthetic_embedding(0.5);
+        let emb_b = synthetic_embedding(0.5);
+        let sim = cosine_similarity(&emb_a, &emb_b);
+        let model_name = ModelChoice::default().as_str().to_string();
+
+        let json_val = serde_json::json!({
+            "similarity": sim,
+            "model": model_name,
+        });
+
+        let score = json_val["similarity"].as_f64().unwrap();
+        assert!(
+            score > 0.99,
+            "identical embeddings should have similarity ~1.0, got {score}"
+        );
+        assert!(json_val["model"].as_str().is_some());
+    }
+
+    #[test]
+    fn similarity_different_embeddings_less_than_one() {
+        let emb_a = synthetic_embedding(0.5);
+        let emb_b = synthetic_embedding(-0.5);
+        let sim = cosine_similarity(&emb_a, &emb_b);
+
+        assert!(
+            sim < 0.99,
+            "different embeddings should have similarity < 1.0, got {sim}"
+        );
+    }
+}
