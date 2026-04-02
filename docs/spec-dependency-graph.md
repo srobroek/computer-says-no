@@ -6,11 +6,13 @@ graph LR
     002[002: Benchmark Harness]:::done
     003[003: MLP Classifier]:::done
     004[004: MCP Server]:::done
+    005[005: Lazy Daemon]:::ready
 
     001 --> 002
     001 --> 003
     001 --> 004
     002 --> 003
+    004 --> 005
 
     classDef done fill:#2da44e,color:#fff
     classDef ready fill:#bf8700,color:#fff
@@ -25,14 +27,15 @@ graph LR
 | 002 | done | Benchmark harness — 12-model comparison, datasets, accuracy/latency measurement |
 | 003 | done | MLP classifier — 2-layer neural network on embeddings + cosine features |
 | 004 | done | MCP stdio server — 4 tools (classify, list_sets, embed, similarity) |
+| 005 | ready | Lazy auto-starting background daemon — unix socket, idle timeout, fast CLI |
 
 ## Ready Now
 
-- None — all specs complete
+- **005-lazy-daemon**: Implementation complete, pending quality gates
 
 ## Critical Path
 
-All specs complete (001 → 002 → 003, 001 → 004)
+001 → 004 → 005 (daemon depends on MCP architecture changes)
 
 ## Dependency Details
 
@@ -42,3 +45,4 @@ All specs complete (001 → 002 → 003, 001 → 004)
 | 003 → 001 | MLP classifier extends the classification pipeline | — |
 | 003 → 002 | Benchmark validates MLP accuracy gains (96.2% target) | — |
 | 004 → 001 | MCP server wraps the core classification/embedding engine | — |
+| 005 → 004 | Daemon adds unix socket transport alongside MCP stdio | — |
