@@ -11,7 +11,7 @@ use rust_mcp_sdk::schema::{
 use rust_mcp_sdk::tool_box;
 
 use crate::classifier;
-use crate::mlp::TrainedModel;
+use crate::mlp::{TrainedModel, TrainedMultiCatModel};
 use crate::model::{EmbeddingEngine, ModelChoice, cosine_similarity};
 use crate::reference_set::{ReferenceSet, ReferenceSetKind};
 
@@ -24,11 +24,12 @@ pub struct McpHandler {
     engine: Mutex<EmbeddingEngine>,
     reference_sets: Vec<ReferenceSet>,
     trained_models: Mutex<Vec<TrainedModel>>,
+    trained_multi_models: Mutex<Vec<TrainedMultiCatModel>>,
     model_choice: ModelChoice,
 }
 
 // SAFETY: McpHandler fields are protected by Mutex, making concurrent access safe.
-// The non-Sync types (EmbeddingEngine, TrainedModel) are never shared directly.
+// The non-Sync types (EmbeddingEngine, TrainedModel, TrainedMultiCatModel) are never shared directly.
 unsafe impl Sync for McpHandler {}
 
 impl McpHandler {
@@ -36,12 +37,14 @@ impl McpHandler {
         engine: EmbeddingEngine,
         reference_sets: Vec<ReferenceSet>,
         trained_models: Vec<TrainedModel>,
+        trained_multi_models: Vec<TrainedMultiCatModel>,
         model_choice: ModelChoice,
     ) -> Self {
         Self {
             engine: Mutex::new(engine),
             reference_sets,
             trained_models: Mutex::new(trained_models),
+            trained_multi_models: Mutex::new(trained_multi_models),
             model_choice,
         }
     }
@@ -124,13 +127,22 @@ impl McpHandler {
             .iter()
             .find(|m| m.reference_set_name == tool.reference_set);
 
+        let trained_multi_models = self
+            .trained_multi_models
+            .lock()
+            .map_err(|_| CallToolError::from_message("multi models lock poisoned".to_string()))?;
+        let trained_multi_model = trained_multi_models
+            .iter()
+            .find(|m| m.reference_set_name == tool.reference_set);
+
         let mut engine = self
             .engine
             .lock()
             .map_err(|_| CallToolError::from_message("engine lock poisoned".to_string()))?;
 
-        let result = classifier::classify_text(&mut engine, &tool.text, set, trained_model)
-            .map_err(|e| CallToolError::from_message(e.to_string()))?;
+        let result =
+            classifier::classify_text(&mut engine, &tool.text, set, trained_model, trained_multi_model)
+                .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
         let json = serde_json::to_string_pretty(&result)
             .map_err(|e| CallToolError::from_message(format!("serialization error: {e}")))?;

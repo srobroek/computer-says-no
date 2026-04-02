@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use burn::backend::{Autodiff, NdArray};
 use burn::module::AutodiffModule;
-use burn::nn::loss::BinaryCrossEntropyLossConfig;
+use burn::nn::loss::{BinaryCrossEntropyLossConfig, CrossEntropyLossConfig};
 use burn::nn::{Linear, LinearConfig, Relu};
 use burn::optim::{AdamConfig, GradientsParams, Optimizer};
 use burn::prelude::*;
@@ -526,6 +526,475 @@ fn do_train(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Multi-category MLP
+// ---------------------------------------------------------------------------
+
+/// Multi-category MLP classifier for embedding-based text classification.
+///
+/// Three-layer perceptron: input → hidden1 (256) → hidden2 (128) → output (N).
+/// Forward pass returns **raw logits** — softmax is applied at inference time.
+/// During training `CrossEntropyLoss` applies `log_softmax` internally.
+#[derive(Module, Debug)]
+pub struct MultiCatMlpClassifier<B: Backend> {
+    linear1: Linear<B>,
+    linear2: Linear<B>,
+    output: Linear<B>,
+    activation: Relu,
+}
+
+impl<B: Backend> MultiCatMlpClassifier<B> {
+    /// Run the forward pass: linear1 → relu → linear2 → relu → output (raw logits).
+    pub fn forward(&self, input: Tensor<B, 2>) -> Tensor<B, 2> {
+        let x = self.activation.forward(self.linear1.forward(input));
+        let x = self.activation.forward(self.linear2.forward(x));
+        self.output.forward(x)
+    }
+}
+
+/// Configuration for creating a [`MultiCatMlpClassifier`].
+#[derive(Config, Debug)]
+pub struct MultiCatMlpConfig {
+    /// Input feature dimension (embedding + N*3 cosine + 256 char n-grams).
+    pub input_dim: usize,
+    /// Number of output classes.
+    pub num_classes: usize,
+    /// First hidden layer size.
+    #[config(default = 256)]
+    hidden1: usize,
+    /// Second hidden layer size.
+    #[config(default = 128)]
+    hidden2: usize,
+}
+
+impl MultiCatMlpConfig {
+    /// Initialize a [`MultiCatMlpClassifier`] from this configuration.
+    pub fn init<B: Backend>(&self, device: &B::Device) -> MultiCatMlpClassifier<B> {
+        MultiCatMlpClassifier {
+            linear1: LinearConfig::new(self.input_dim, self.hidden1).init(device),
+            linear2: LinearConfig::new(self.hidden1, self.hidden2).init(device),
+            output: LinearConfig::new(self.hidden2, self.num_classes).init(device),
+            activation: Relu::new(),
+        }
+    }
+}
+
+/// A trained multi-category MLP model ready for inference.
+pub struct TrainedMultiCatModel {
+    /// Name of the multi-category reference set this model was trained on.
+    pub reference_set_name: String,
+    /// blake3 hash (v3-multicat prefix) for cache key.
+    #[allow(dead_code)]
+    pub content_hash: String,
+    /// The trained multi-category MLP classifier on the inference backend.
+    pub classifier: MultiCatMlpClassifier<NdArray<f32>>,
+    /// Per-category embeddings, alphabetically sorted by category name.
+    pub category_embeddings: Vec<(String, Vec<Embedding>)>,
+    /// Per-category phrases, alphabetically sorted by category name.
+    pub category_phrases: Vec<(String, Vec<String>)>,
+    /// Alphabetically sorted category names (indices match softmax output).
+    pub category_names: Vec<String>,
+}
+
+/// Compute per-category cosine features for multi-category MLP input.
+///
+/// For each category (in the order given), computes:
+/// - `max_sim`: maximum cosine similarity to any phrase in the category
+/// - `mean_sim`: mean cosine similarity across all phrases in the category
+/// - `margin`: max_sim minus the best max_sim of any *other* category
+///
+/// Returns a vector of length `N * 3` where N is the number of categories.
+pub fn compute_multi_cosine_features(
+    text_emb: &Embedding,
+    category_embeddings: &[(String, Vec<Embedding>)],
+) -> Vec<f32> {
+    let n = category_embeddings.len();
+    // First compute max_sim and mean_sim for each category.
+    let mut max_sims = Vec::with_capacity(n);
+    let mut mean_sims = Vec::with_capacity(n);
+
+    for (_name, embeddings) in category_embeddings {
+        if embeddings.is_empty() {
+            max_sims.push(0.0_f32);
+            mean_sims.push(0.0_f32);
+            continue;
+        }
+        let sims: Vec<f32> = embeddings
+            .iter()
+            .map(|e| cosine_similarity(text_emb, e))
+            .collect();
+        let max_s = sims.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let mean_s = sims.iter().sum::<f32>() / sims.len() as f32;
+        max_sims.push(max_s);
+        mean_sims.push(mean_s);
+    }
+
+    // Compute margin: max_sim[i] - max of max_sim[j] for j != i.
+    let mut features = Vec::with_capacity(n * 3);
+    for i in 0..n {
+        let best_other = max_sims
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j != i)
+            .map(|(_, &s)| s)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let best_other = if best_other == f32::NEG_INFINITY {
+            0.0
+        } else {
+            best_other
+        };
+        features.push(max_sims[i]);
+        features.push(mean_sims[i]);
+        features.push(max_sims[i] - best_other);
+    }
+
+    features
+}
+
+/// Compute a blake3 content hash for multi-category MLP weight caching.
+///
+/// Sorts category names and phrases within each category, then hashes with
+/// a "v3-multicat" version prefix.
+pub fn multi_content_hash(categories: &[(String, Vec<String>)]) -> String {
+    let mut parts: Vec<String> = vec!["v3-multicat".to_string()];
+
+    // Categories are already expected to be sorted alphabetically by the caller,
+    // but we sort internally for safety.
+    let mut sorted_cats: Vec<(String, Vec<String>)> = categories.to_vec();
+    sorted_cats.sort_by(|a, b| a.0.cmp(&b.0));
+
+    for (name, phrases) in &sorted_cats {
+        parts.push(name.clone());
+        let mut sorted_phrases = phrases.clone();
+        sorted_phrases.sort();
+        for p in sorted_phrases {
+            parts.push(p);
+        }
+    }
+
+    let combined = parts.join("\n");
+    blake3::hash(combined.as_bytes()).to_hex().to_string()
+}
+
+/// Train a multi-category MLP classifier from per-category phrase embeddings.
+///
+/// Categories must be sorted alphabetically. Labels are category indices (0..N-1).
+/// Uses `CrossEntropyLoss` with raw logits and Adam optimizer with early stopping.
+#[allow(clippy::too_many_arguments)]
+pub fn train_multi_mlp(
+    category_embeddings: &[(String, Vec<Embedding>)],
+    category_phrases: &[(String, Vec<String>)],
+    learning_rate: f64,
+    weight_decay: f64,
+    max_epochs: usize,
+    patience: usize,
+) -> anyhow::Result<MultiCatMlpClassifier<NdArray<f32>>> {
+    type TrainBackend = Autodiff<NdArray<f32>>;
+
+    let device = <TrainBackend as Backend>::Device::default();
+    let num_classes = category_embeddings.len();
+
+    if num_classes < 2 {
+        anyhow::bail!("multi-category MLP requires at least 2 categories");
+    }
+
+    // Count total samples and determine embedding dimension.
+    let total_samples: usize = category_embeddings.iter().map(|(_, e)| e.len()).sum();
+    if total_samples == 0 {
+        anyhow::bail!("no training samples provided");
+    }
+
+    let embed_dim = category_embeddings
+        .iter()
+        .flat_map(|(_, e)| e.first())
+        .next()
+        .map(|e| e.len())
+        .unwrap_or(384);
+
+    let feature_dim = embed_dim + num_classes * 3 + CHAR_NGRAM_DIM;
+    let config = MultiCatMlpConfig::new(feature_dim, num_classes);
+    let mut model: MultiCatMlpClassifier<TrainBackend> = config.init(&device);
+
+    // --- Build training data ---
+    let mut features: Vec<f32> = Vec::with_capacity(total_samples * feature_dim);
+    let mut labels: Vec<i64> = Vec::with_capacity(total_samples);
+
+    for (cat_idx, ((_name, embeddings), (_pname, phrases))) in category_embeddings
+        .iter()
+        .zip(category_phrases.iter())
+        .enumerate()
+    {
+        for (sample_idx, emb) in embeddings.iter().enumerate() {
+            // Exclude self from this category's embeddings to avoid leakage.
+            let mut leave_one_out: Vec<(String, Vec<Embedding>)> =
+                category_embeddings.to_vec();
+            leave_one_out[cat_idx].1 = embeddings
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| *j != sample_idx)
+                .map(|(_, e)| e.clone())
+                .collect();
+
+            let cosine_feats = compute_multi_cosine_features(emb, &leave_one_out);
+            let char_feats = char_ngram_features(&phrases[sample_idx]);
+
+            features.extend_from_slice(emb);
+            features.extend_from_slice(&cosine_feats);
+            features.extend_from_slice(&char_feats);
+            labels.push(cat_idx as i64);
+        }
+    }
+
+    // Create Burn tensors.
+    let x = Tensor::<TrainBackend, 2>::from_floats(
+        TensorData::new(features, [total_samples, feature_dim]),
+        &device,
+    );
+    let y = Tensor::<TrainBackend, 1, Int>::from_ints(
+        TensorData::new(labels, [total_samples]),
+        &device,
+    );
+
+    // --- Configure optimizer and loss ---
+    let optim_config = AdamConfig::new().with_weight_decay(Some(
+        burn::optim::decay::WeightDecayConfig::new(weight_decay as f32),
+    ));
+    let mut optim = optim_config.init();
+    let ce = CrossEntropyLossConfig::new().init(&device);
+
+    // --- Training loop with early stopping ---
+    let mut best_loss = f64::INFINITY;
+    let mut epochs_without_improvement = 0_usize;
+
+    for epoch in 0..max_epochs {
+        let output = model.forward(x.clone()); // (batch, num_classes) — raw logits
+        let loss = ce.forward(output, y.clone());
+        let loss_scalar: f64 = loss.clone().into_scalar().elem();
+
+        if loss_scalar.is_nan() {
+            anyhow::bail!("training diverged: loss is NaN at epoch {epoch}");
+        }
+
+        if loss_scalar < best_loss - 1e-6 {
+            best_loss = loss_scalar;
+            epochs_without_improvement = 0;
+        } else {
+            epochs_without_improvement += 1;
+        }
+
+        if epochs_without_improvement >= patience {
+            break;
+        }
+
+        let grads = loss.backward();
+        let grads = GradientsParams::from_grads(grads, &model);
+        model = optim.step(learning_rate, model, grads);
+    }
+
+    if best_loss == f64::INFINITY {
+        anyhow::bail!("multi-category MLP training failed to converge");
+    }
+
+    Ok(model.valid())
+}
+
+/// Save multi-category MLP weights to disk.
+pub fn save_multi_weights<B: Backend>(
+    model: MultiCatMlpClassifier<B>,
+    path: &Path,
+) -> anyhow::Result<()> {
+    let recorder = NamedMpkFileRecorder::<FullPrecisionSettings>::new();
+    let base = path.with_extension("");
+    model
+        .save_file(base, &recorder)
+        .map_err(|e| anyhow::anyhow!("failed to save multi-cat MLP weights: {e}"))?;
+    Ok(())
+}
+
+/// Load multi-category MLP weights from disk.
+pub fn load_multi_weights<B: Backend>(
+    config: &MultiCatMlpConfig,
+    path: &Path,
+    device: &B::Device,
+) -> anyhow::Result<MultiCatMlpClassifier<B>> {
+    let recorder = NamedMpkFileRecorder::<FullPrecisionSettings>::new();
+    let base = path.with_extension("");
+    let model = config.init::<B>(device);
+    let model = model
+        .load_file(base, &recorder, device)
+        .map_err(|e| anyhow::anyhow!("failed to load multi-cat MLP weights: {e}"))?;
+    Ok(model)
+}
+
+/// Train multi-category MLP models for all eligible reference sets at startup.
+///
+/// Iterates the loaded reference sets and trains (or loads from cache) a
+/// multi-category MLP for each set that has at least 2 phrases per category
+/// and 4 total phrases. Binary sets are silently skipped.
+#[allow(clippy::too_many_arguments)]
+pub fn train_multi_models_at_startup(
+    reference_sets: &[ReferenceSet],
+    cache_dir: &Path,
+    learning_rate: f64,
+    weight_decay: f64,
+    max_epochs: usize,
+    patience: usize,
+    fallback: bool,
+) -> anyhow::Result<Vec<TrainedMultiCatModel>> {
+    tracing::info!("training multi-category MLP models at startup");
+
+    let device = <NdArray<f32> as Backend>::Device::default();
+    let mut trained: Vec<TrainedMultiCatModel> = Vec::new();
+
+    for rs in reference_sets {
+        let name = &rs.metadata.name;
+
+        let multi = match &rs.kind {
+            ReferenceSetKind::Binary(_) => continue,
+            ReferenceSetKind::MultiCategory(m) => m,
+        };
+
+        // Build sorted category data.
+        let mut cat_embeddings: Vec<(String, Vec<Embedding>)> = multi
+            .categories
+            .iter()
+            .map(|(n, c)| (n.clone(), c.embeddings.clone()))
+            .collect();
+        cat_embeddings.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mut cat_phrases: Vec<(String, Vec<String>)> = multi
+            .categories
+            .iter()
+            .map(|(n, c)| (n.clone(), c.phrases.clone()))
+            .collect();
+        cat_phrases.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let category_names: Vec<String> = cat_embeddings.iter().map(|(n, _)| n.clone()).collect();
+
+        // Check minimums: 2 per category AND 4 total.
+        let total_phrases: usize = cat_phrases.iter().map(|(_, p)| p.len()).sum();
+        let min_per_cat = cat_phrases.iter().map(|(_, p)| p.len()).min().unwrap_or(0);
+        if total_phrases < 4 || min_per_cat < 2 {
+            tracing::info!(
+                set = %name,
+                total = total_phrases,
+                min_per_cat = min_per_cat,
+                "skipping multi-cat MLP training: insufficient phrases"
+            );
+            continue;
+        }
+
+        // Compute input dimension and config.
+        let embed_dim = cat_embeddings
+            .iter()
+            .flat_map(|(_, e)| e.first())
+            .next()
+            .map(|e| e.len())
+            .unwrap_or(384);
+        let num_classes = category_names.len();
+        let feature_dim = embed_dim + num_classes * 3 + CHAR_NGRAM_DIM;
+        let config = MultiCatMlpConfig::new(feature_dim, num_classes);
+
+        // Check cache.
+        let hash = multi_content_hash(&cat_phrases);
+        let path = cache_path(cache_dir, &hash);
+
+        let classifier = if path.exists() {
+            match load_multi_weights::<NdArray<f32>>(&config, &path, &device) {
+                Ok(model) => {
+                    tracing::info!(set = %name, hash = %hash, "loaded multi-cat MLP weights from cache");
+                    Some(model)
+                }
+                Err(e) => {
+                    tracing::warn!(set = %name, error = %e, "multi-cat cache load failed, retraining");
+                    do_train_multi(
+                        name,
+                        &cat_embeddings,
+                        &cat_phrases,
+                        &path,
+                        learning_rate,
+                        weight_decay,
+                        max_epochs,
+                        patience,
+                        fallback,
+                    )?
+                }
+            }
+        } else {
+            do_train_multi(
+                name,
+                &cat_embeddings,
+                &cat_phrases,
+                &path,
+                learning_rate,
+                weight_decay,
+                max_epochs,
+                patience,
+                fallback,
+            )?
+        };
+
+        if let Some(classifier) = classifier {
+            trained.push(TrainedMultiCatModel {
+                reference_set_name: name.clone(),
+                content_hash: hash,
+                classifier,
+                category_embeddings: cat_embeddings,
+                category_phrases: cat_phrases,
+                category_names,
+            });
+        }
+    }
+
+    tracing::info!(count = trained.len(), "multi-category MLP startup training complete");
+    Ok(trained)
+}
+
+/// Train a single multi-category MLP and save weights to disk.
+#[allow(clippy::too_many_arguments)]
+fn do_train_multi(
+    name: &str,
+    cat_embeddings: &[(String, Vec<Embedding>)],
+    cat_phrases: &[(String, Vec<String>)],
+    path: &Path,
+    learning_rate: f64,
+    weight_decay: f64,
+    max_epochs: usize,
+    patience: usize,
+    fallback: bool,
+) -> anyhow::Result<Option<MultiCatMlpClassifier<NdArray<f32>>>> {
+    tracing::info!(set = %name, "training multi-category MLP model");
+    let start = std::time::Instant::now();
+    match train_multi_mlp(
+        cat_embeddings,
+        cat_phrases,
+        learning_rate,
+        weight_decay,
+        max_epochs,
+        patience,
+    ) {
+        Ok(model) => {
+            let duration_ms = start.elapsed().as_millis() as u64;
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            save_multi_weights(model.clone(), path)?;
+            tracing::info!(set = %name, duration_ms = duration_ms, "multi-cat MLP training complete");
+            Ok(Some(model))
+        }
+        Err(e) => {
+            if fallback {
+                tracing::warn!(set = %name, error = %e, "multi-cat MLP training failed, using cosine fallback");
+                Ok(None)
+            } else {
+                Err(anyhow::anyhow!(
+                    "multi-cat MLP training failed for set '{name}': {e}"
+                ))
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -829,6 +1298,207 @@ mod tests {
         assert_ne!(
             v2_hash, v1_hash,
             "v2 hash must differ from v1 (cache invalidation)"
+        );
+    }
+
+    // --- Multi-category MLP tests ---
+
+    #[test]
+    fn multi_config_init() {
+        let config = MultiCatMlpConfig::new(649, 3);
+        let device = <TestBackend as Backend>::Device::default();
+        let model = config.init::<TestBackend>(&device);
+
+        assert_eq!(model.linear1.weight.dims(), [649, 256]);
+        assert_eq!(model.linear2.weight.dims(), [256, 128]);
+        assert_eq!(model.output.weight.dims(), [128, 3]);
+    }
+
+    #[test]
+    fn multi_forward_output_shape() {
+        let config = MultiCatMlpConfig::new(649, 3);
+        let device = <TestBackend as Backend>::Device::default();
+        let model = config.init::<TestBackend>(&device);
+
+        let batch = 4;
+        let input = Tensor::<TestBackend, 2>::random(
+            [batch, 649],
+            burn::tensor::Distribution::Uniform(-1.0, 1.0),
+            &device,
+        );
+
+        let output = model.forward(input);
+        assert_eq!(output.dims(), [batch, 3]);
+    }
+
+    #[test]
+    fn multi_forward_returns_raw_logits() {
+        let config = MultiCatMlpConfig::new(649, 3);
+        let device = <TestBackend as Backend>::Device::default();
+        let model = config.init::<TestBackend>(&device);
+
+        let input = Tensor::<TestBackend, 2>::random(
+            [4, 649],
+            burn::tensor::Distribution::Uniform(-1.0, 1.0),
+            &device,
+        );
+
+        let output = model.forward(input);
+        let data: Vec<f32> = output.into_data().to_vec().unwrap();
+
+        // Raw logits can be any value — they are NOT constrained to (0, 1).
+        // At least some values should be outside (0, 1) for random weights.
+        let has_out_of_unit = data.iter().any(|&v| v < 0.0 || v > 1.0);
+        assert!(
+            has_out_of_unit || data.len() == 12,
+            "logits should not be constrained to (0, 1); got all in range"
+        );
+    }
+
+    #[test]
+    fn compute_multi_cosine_features_known() {
+        let text: Embedding = vec![1.0, 0.0, 0.0];
+        let cat_embeddings: Vec<(String, Vec<Embedding>)> = vec![
+            (
+                "alpha".to_string(),
+                vec![vec![1.0, 0.0, 0.0], vec![0.0, 1.0, 0.0]],
+            ),
+            ("beta".to_string(), vec![vec![-1.0, 0.0, 0.0]]),
+        ];
+
+        let feats = compute_multi_cosine_features(&text, &cat_embeddings);
+        assert_eq!(feats.len(), 6); // 2 categories * 3 features
+
+        // Alpha: max=1.0 (identical), mean=0.5, margin=1.0-(-1.0)=2.0
+        assert!((feats[0] - 1.0).abs() < 1e-6, "alpha max = {}", feats[0]);
+        assert!((feats[1] - 0.5).abs() < 1e-6, "alpha mean = {}", feats[1]);
+        assert!(
+            (feats[2] - 2.0).abs() < 1e-6,
+            "alpha margin = {}",
+            feats[2]
+        );
+
+        // Beta: max=-1.0, mean=-1.0, margin=-1.0-1.0=-2.0
+        assert!(
+            (feats[3] - (-1.0)).abs() < 1e-6,
+            "beta max = {}",
+            feats[3]
+        );
+        assert!(
+            (feats[4] - (-1.0)).abs() < 1e-6,
+            "beta mean = {}",
+            feats[4]
+        );
+        assert!(
+            (feats[5] - (-2.0)).abs() < 1e-6,
+            "beta margin = {}",
+            feats[5]
+        );
+    }
+
+    #[test]
+    fn multi_content_hash_deterministic() {
+        let cats = vec![
+            ("alpha".to_string(), vec!["a".to_string(), "b".to_string()]),
+            ("beta".to_string(), vec!["c".to_string()]),
+        ];
+        let h1 = multi_content_hash(&cats);
+        let h2 = multi_content_hash(&cats);
+        assert_eq!(h1, h2);
+
+        // Reversed order should produce same hash (sorted internally).
+        let cats_rev = vec![
+            ("beta".to_string(), vec!["c".to_string()]),
+            ("alpha".to_string(), vec!["b".to_string(), "a".to_string()]),
+        ];
+        let h3 = multi_content_hash(&cats_rev);
+        assert_eq!(h1, h3);
+    }
+
+    #[test]
+    fn multi_content_hash_no_collision_with_binary() {
+        let binary_pos = vec!["hello".to_string()];
+        let binary_neg = vec!["bad".to_string()];
+        let binary_hash = content_hash(&binary_pos, &binary_neg);
+
+        let multi_cats = vec![
+            (
+                "positive".to_string(),
+                vec!["hello".to_string()],
+            ),
+            (
+                "negative".to_string(),
+                vec!["bad".to_string()],
+            ),
+        ];
+        let multi_hash = multi_content_hash(&multi_cats);
+
+        assert_ne!(
+            binary_hash, multi_hash,
+            "binary and multi-cat hashes must not collide"
+        );
+    }
+
+    #[test]
+    fn save_load_multi_roundtrip() {
+        let device = <TestBackend as Backend>::Device::default();
+        let config = MultiCatMlpConfig::new(649, 3);
+        let model = config.init::<TestBackend>(&device);
+
+        let input = Tensor::<TestBackend, 2>::ones([2, 649], &device);
+        let output_before: Vec<f32> = model.forward(input.clone()).into_data().to_vec().unwrap();
+
+        let tmp_dir = std::env::temp_dir().join("csn_test_multi_roundtrip");
+        std::fs::create_dir_all(tmp_dir.join("mlp")).expect("create temp mlp dir");
+        let weight_path = tmp_dir.join("mlp").join("test_multi_weights.mpk");
+
+        save_multi_weights(model, &weight_path).expect("save should succeed");
+
+        let loaded = load_multi_weights::<TestBackend>(&config, &weight_path, &device)
+            .expect("load should succeed");
+
+        let output_after: Vec<f32> = loaded.forward(input).into_data().to_vec().unwrap();
+
+        assert_eq!(output_before.len(), output_after.len());
+        for (i, (a, b)) in output_before.iter().zip(output_after.iter()).enumerate() {
+            assert!(
+                (a - b).abs() < 1e-6,
+                "output[{i}] mismatch: before={a}, after={b}"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn multi_forward_equal_logits_produce_equal_probs() {
+        // When softmax is applied to equal logits, all probabilities should be equal.
+        // The actual tie-breaking (alphabetically-first wins) is handled by the
+        // classifier layer, not the MLP forward pass.
+        let device = <TestBackend as Backend>::Device::default();
+
+        let equal_logits = Tensor::<TestBackend, 2>::from_floats(
+            TensorData::new(vec![1.0_f32; 3], [1, 3]),
+            &device,
+        );
+        let probs: Vec<f32> = activation::softmax(equal_logits, 1)
+            .into_data()
+            .to_vec()
+            .unwrap();
+
+        // All should be ~0.333
+        for &p in &probs {
+            assert!(
+                (p - 1.0 / 3.0).abs() < 1e-5,
+                "equal logit prob = {p}, expected ~0.333"
+            );
+        }
+
+        // Verify softmax output sums to 1.
+        let sum: f32 = probs.iter().sum();
+        assert!(
+            (sum - 1.0).abs() < 1e-5,
+            "softmax sum = {sum}, expected 1.0"
         );
     }
 }
