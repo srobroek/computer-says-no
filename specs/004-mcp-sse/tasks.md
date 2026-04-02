@@ -95,9 +95,9 @@
 
 **Purpose**: Cleanup, docs, validation
 
-- [ ] T023 [P] Update CLAUDE.md: remove daemon/REST/watcher references, add MCP subcommand, update test count and architecture description
-- [ ] T024 [P] Update `docs/spec-dependency-graph.md`: mark 004 as done
-- [ ] T025 Run `cargo build --release` and compare binary size to pre-spec-004 binary (expect decrease from removing axum/reqwest/notify). Record results
+- [x] T023 [P] Update CLAUDE.md: remove daemon/REST/watcher references, add MCP subcommand, update test count and architecture description
+- [x] T024 [P] Update `docs/spec-dependency-graph.md`: mark 004 as done
+- [x] T025 Run `cargo build --release` and compare binary size to pre-spec-004 binary (expect decrease from removing axum/reqwest/notify). Record results
 - [ ] T026 [MANUAL] Verify MCP tools work end-to-end from Claude Code with real model
 
 ---
