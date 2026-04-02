@@ -283,7 +283,7 @@ pub fn run_daemon(config: &AppConfig) -> Result<()> {
         let idle_tracker = tracker.clone();
         let idle_shutdown = shutdown_tx.clone();
         tokio::spawn(async move {
-            let check_interval = Duration::from_secs(30);
+            let check_interval = Duration::from_secs(5);
             loop {
                 tokio::time::sleep(check_interval).await;
                 if idle_tracker.is_idle() {
