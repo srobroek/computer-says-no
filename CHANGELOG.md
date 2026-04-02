@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/srobroek/computer-says-no/compare/v0.2.0...v0.2.1) - 2026-04-02
+
+### Documentation
+
+- fix default model to nomic-embed-text-v1.5-Q, clean benchmark table
+- simplify dataset section, general-purpose classifier note
+
 ## [0.2.0](https://github.com/srobroek/computer-says-no/compare/v0.1.0...v0.2.0) - 2026-04-02
 
 ### Bug Fixes
