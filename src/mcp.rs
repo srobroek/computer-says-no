@@ -1,6 +1,7 @@
 use std::sync::Mutex;
 
 use async_trait::async_trait;
+use rust_mcp_sdk::McpServer;
 use rust_mcp_sdk::macros::{JsonSchema, mcp_tool};
 use rust_mcp_sdk::mcp_server::ServerHandler;
 use rust_mcp_sdk::schema::{
@@ -8,7 +9,6 @@ use rust_mcp_sdk::schema::{
     TextContent, schema_utils::CallToolError,
 };
 use rust_mcp_sdk::tool_box;
-use rust_mcp_sdk::McpServer;
 
 use crate::classifier;
 use crate::mlp::TrainedModel;
@@ -90,7 +90,10 @@ pub struct SimilarityTool {
     pub b: String,
 }
 
-tool_box!(CsnTools, [ClassifyTool, ListSetsTool, EmbedTool, SimilarityTool]);
+tool_box!(
+    CsnTools,
+    [ClassifyTool, ListSetsTool, EmbedTool, SimilarityTool]
+);
 
 // --- Tool implementations ---
 
@@ -223,7 +226,8 @@ impl ServerHandler for McpHandler {
         params: CallToolRequestParams,
         _runtime: std::sync::Arc<dyn McpServer>,
     ) -> Result<CallToolResult, CallToolError> {
-        let tool: CsnTools = CsnTools::try_from(params).map_err(|e| CallToolError::from_message(e.to_string()))?;
+        let tool: CsnTools =
+            CsnTools::try_from(params).map_err(|e| CallToolError::from_message(e.to_string()))?;
 
         match tool {
             CsnTools::ClassifyTool(t) => self.handle_classify(t),
@@ -246,7 +250,11 @@ mod tests {
         (0..384).map(|i| base + (i as f32) * 0.001).collect()
     }
 
-    fn make_reference_set(name: &str, positive_count: usize, negative_count: usize) -> ReferenceSet {
+    fn make_reference_set(
+        name: &str,
+        positive_count: usize,
+        negative_count: usize,
+    ) -> ReferenceSet {
         let pos_embeddings: Vec<Embedding> = (0..positive_count)
             .map(|i| synthetic_embedding(0.5 + i as f32 * 0.1))
             .collect();
@@ -292,7 +300,7 @@ mod tests {
 
     #[test]
     fn list_sets_returns_correct_metadata() {
-        let sets = vec![
+        let sets = [
             make_reference_set("corrections", 3, 2),
             make_reference_set("safety", 5, 0),
         ];

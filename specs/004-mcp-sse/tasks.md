@@ -72,7 +72,7 @@
 
 **Independent Test**: Run `csn classify` without `--standalone`, configure MCP in Claude Code.
 
-- [ ] T018 [US5] Verify all CLI subcommands work without `--standalone` flag. Run `csn classify "test" --set corrections`, `csn embed "test"`, `csn similarity "a" "b"`, `csn models`, `csn sets list`. Fix any remaining references to daemon/standalone logic
+- [x] T018 [US5] Verify all CLI subcommands work without `--standalone` flag. Run `csn classify "test" --set corrections`, `csn embed "test"`, `csn similarity "a" "b"`, `csn models`, `csn sets list`. Fix any remaining references to daemon/standalone logic
 - [ ] T019 [US6] [MANUAL] Configure `csn mcp` in Claude Code or MCP Inspector. Verify tool discovery and all 4 tools callable. Document configuration in quickstart.md if needed
 
 **Checkpoint**: End-to-end MCP + CLI working.
@@ -83,9 +83,9 @@
 
 **Purpose**: Replace REST integration tests with MCP tests
 
-- [ ] T020 Remove REST-based integration tests from `tests/integration_test.rs` (daemon subprocess tests that hit HTTP endpoints)
-- [ ] T021 Add MCP integration test in `tests/integration_test.rs`: spawn `csn mcp` as subprocess, send `initialize` JSON-RPC request via stdin, verify `tools/list` response contains 4 tools. Mark `#[ignore]` (requires model download)
-- [ ] T022 Run `just check` (clippy + fmt + test + build). Fix any issues
+- [x] T020 Remove REST-based integration tests from `tests/integration_test.rs` (daemon subprocess tests that hit HTTP endpoints)
+- [x] T021 Add MCP integration test in `tests/integration_test.rs`: spawn `csn mcp` as subprocess, send `initialize` JSON-RPC request via stdin, verify `tools/list` response contains 4 tools. Mark `#[ignore]` (requires model download)
+- [x] T022 Run `just check` (clippy + fmt + test + build). Fix any issues
 
 **Checkpoint**: All tests pass, clippy clean.
 
