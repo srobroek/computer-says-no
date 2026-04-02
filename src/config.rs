@@ -229,7 +229,6 @@ mod tests {
     #[test]
     fn mlp_file_config_deserializes_from_toml() {
         let toml_str = r#"
-            port = 9999
             [mlp]
             fallback = true
             learning_rate = 0.01

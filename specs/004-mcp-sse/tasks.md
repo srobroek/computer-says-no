@@ -15,9 +15,9 @@
 
 **Purpose**: Add MCP dependency, remove daemon/REST dependencies
 
-- [ ] T001 Add `rust-mcp-sdk` and `async-trait` dependencies to `Cargo.toml`. Remove `axum`, `reqwest`, `notify` dependencies. Run `cargo check` to update `Cargo.lock` (will have compile errors — expected until code is removed)
-- [ ] T002 [P] Delete `src/server.rs` (REST daemon: AppState, routes, handlers). Remove `mod server;` from `src/main.rs`
-- [ ] T003 [P] Delete `src/watcher.rs` (file watcher, hot-reload). Remove `mod watcher;` from `src/main.rs`
+- [x] T001 Add `rust-mcp-sdk` and `async-trait` dependencies to `Cargo.toml`. Remove `axum`, `reqwest`, `notify` dependencies. Run `cargo check` to update `Cargo.lock` (will have compile errors — expected until code is removed)
+- [x] T002 [P] Delete `src/server.rs` (REST daemon: AppState, routes, handlers). Remove `mod server;` from `src/main.rs`
+- [x] T003 [P] Delete `src/watcher.rs` (file watcher, hot-reload). Remove `mod watcher;` from `src/main.rs`
 
 ---
 
@@ -25,9 +25,9 @@
 
 **Purpose**: Remove daemon-related code from CLI, drop --standalone flag
 
-- [ ] T004 Remove `Serve` variant from `Command` enum in `src/main.rs`. Remove the `cmd_serve` match arm and `serve()` call
-- [ ] T005 Remove `--standalone` flag from `Classify`, `Embed`, `Similarity` subcommands in `src/main.rs`. Remove HTTP client paths (`cmd_classify_remote`, `cmd_embed_remote`, `cmd_similarity_remote`, `check_daemon`, `daemon_url`). Keep only the in-process logic (formerly standalone)
-- [ ] T006 Remove `host` and `port` fields from `AppConfig` in `src/config.rs`. Remove `CSN_HOST`, `CSN_PORT` env var parsing and `FileConfig` fields. Remove `DEFAULT_HOST`, `DEFAULT_PORT` constants
+- [x] T004 Remove `Serve` variant from `Command` enum in `src/main.rs`. Remove the `cmd_serve` match arm and `serve()` call
+- [x] T005 Remove `--standalone` flag from `Classify`, `Embed`, `Similarity` subcommands in `src/main.rs`. Remove HTTP client paths (`cmd_classify_remote`, `cmd_embed_remote`, `cmd_similarity_remote`, `check_daemon`, `daemon_url`). Keep only the in-process logic (formerly standalone)
+- [x] T006 Remove `host` and `port` fields from `AppConfig` in `src/config.rs`. Remove `CSN_HOST`, `CSN_PORT` env var parsing and `FileConfig` fields. Remove `DEFAULT_HOST`, `DEFAULT_PORT` constants
 
 **Checkpoint**: `cargo check` compiles cleanly. CLI commands work in-process. No REST/daemon/watcher code remains.
 
@@ -39,11 +39,11 @@
 
 **Independent Test**: Configure `csn mcp` in Claude Code, call `classify` and `list_sets` tools.
 
-- [ ] T007 Create `src/mcp.rs` module file. Define `McpHandler` struct holding `EmbeddingEngine`, `Vec<ReferenceSet>`, `Vec<TrainedModel>`, and `AppConfig`. Add `mod mcp;` to `src/main.rs`
-- [ ] T008 [US1] Define `ClassifyTool` struct in `src/mcp.rs` using `#[mcp_tool(name = "classify", description = "...")]` with fields `text: String` and `reference_set: String`. Implement `call_tool()` that calls `classifier::classify_text()` and returns JSON result via `CallToolResult::text_content`
-- [ ] T009 [US2] Define `ListSetsTool` struct in `src/mcp.rs` using `#[mcp_tool(name = "list_sets", description = "...")]` with no fields. Implement `call_tool()` that iterates reference sets and returns JSON array of {name, mode, phrase_count}
-- [ ] T010 Create `tool_box!(CsnTools, [ClassifyTool, ListSetsTool, EmbedTool, SimilarityTool])` enum in `src/mcp.rs` (EmbedTool and SimilarityTool can be stubs initially). Implement `ServerHandler` trait on `McpHandler`: `handle_list_tools_request` returns `CsnTools::tools()`, `handle_call_tool_request` dispatches via `CsnTools::try_from(params)` match
-- [ ] T011 Add `Mcp` subcommand to `Command` enum in `src/main.rs`. Implement `cmd_mcp()`: load config, init EmbeddingEngine, load reference sets, train MLP models, create `McpHandler`, create `StdioTransport`, start MCP server via `server_runtime::create_server`. Add `eprintln!` status messages during loading (stderr, not stdout — stdout is MCP protocol)
+- [x] T007 Create `src/mcp.rs` module file. Define `McpHandler` struct holding `EmbeddingEngine`, `Vec<ReferenceSet>`, `Vec<TrainedModel>`, and `AppConfig`. Add `mod mcp;` to `src/main.rs`
+- [x] T008 [US1] Define `ClassifyTool` struct in `src/mcp.rs` using `#[mcp_tool(name = "classify", description = "...")]` with fields `text: String` and `reference_set: String`. Implement `call_tool()` that calls `classifier::classify_text()` and returns JSON result via `CallToolResult::text_content`
+- [x] T009 [US2] Define `ListSetsTool` struct in `src/mcp.rs` using `#[mcp_tool(name = "list_sets", description = "...")]` with no fields. Implement `call_tool()` that iterates reference sets and returns JSON array of {name, mode, phrase_count}
+- [x] T010 Create `tool_box!(CsnTools, [ClassifyTool, ListSetsTool, EmbedTool, SimilarityTool])` enum in `src/mcp.rs` (EmbedTool and SimilarityTool can be stubs initially). Implement `ServerHandler` trait on `McpHandler`: `handle_list_tools_request` returns `CsnTools::tools()`, `handle_call_tool_request` dispatches via `CsnTools::try_from(params)` match
+- [x] T011 Add `Mcp` subcommand to `Command` enum in `src/main.rs`. Implement `cmd_mcp()`: load config, init EmbeddingEngine, load reference sets, train MLP models, create `McpHandler`, create `StdioTransport`, start MCP server via `server_runtime::create_server`. Add `eprintln!` status messages during loading (stderr, not stdout — stdout is MCP protocol)
 - [x] T012 [US1] Unit test in `src/mcp.rs`: verify `ClassifyTool` returns valid JSON with match, confidence, top_phrase, scores fields for a known input (use synthetic embeddings like spec 003 tests)
 - [x] T013 [US2] Unit test in `src/mcp.rs`: verify `ListSetsTool` returns correct set metadata
 

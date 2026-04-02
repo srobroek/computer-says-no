@@ -138,5 +138,5 @@ A developer wants to track benchmark results over time to detect regressions. Th
 - All 12 models can be downloaded and cached locally. Benchmark setup (model download) is not time-bounded — only measured iterations are.
 - Labeled datasets are static JSON files generated once and stored in the repository. They can be regenerated but don't change between benchmark runs unless explicitly regenerated.
 - Dataset generation uses an LLM to generate diverse, realistic test prompts from reference set phrases as seeds. Labels are derived from the generation context (e.g., prompts generated as "correction examples" are labeled as matches). Each reference set can be generated independently in parallel via subagents.
-- The benchmark uses the standalone (in-process) path, not the daemon, to avoid network overhead in measurements. Each model is loaded once, warmed up, then all datasets are run against it before moving to the next model.
+- The benchmark runs in-process (no network calls). Since spec 004, all CLI commands run in-process by default. Each model is loaded once, warmed up, then all datasets are run against it before moving to the next model.
 - Dataset generation is a one-time setup step — it does not need to be fast. Accuracy and coverage matter more than generation speed.

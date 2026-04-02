@@ -2,7 +2,7 @@
 
 ## What Changed
 
-The `/classify` endpoint now uses a combined pipeline (embedding + cosine features → MLP neural network) for binary reference sets, improving accuracy from ~80% to 89-96%.
+Classification now uses a combined pipeline (embedding + cosine features → MLP neural network) for binary reference sets, improving accuracy from ~80% to 89-96%.
 
 ## For Users
 
@@ -25,9 +25,7 @@ just test   # includes MLP unit tests
 
 ### Verify
 ```fish
-just serve
-# In another terminal:
-curl -s localhost:9847/classify -d '{"text": "no that is wrong", "reference_set": "corrections"}' | jq
+csn classify "no that is wrong" --set corrections --json | jq
 # confidence should now be MLP probability (0.0-1.0)
 ```
 

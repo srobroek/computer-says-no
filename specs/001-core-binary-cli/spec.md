@@ -135,7 +135,7 @@ A developer uses the CLI to generate embedding vectors or compute similarity sco
 - The tool runs on the same machine as Claude Code — localhost-only binding is sufficient.
 - Embedding models are downloaded from HuggingFace on first use — network access is required for initial setup but not for subsequent runs.
 - Reference sets contain 5-100 phrases per category — the system is not optimized for sets with thousands of phrases.
-- The daemon is long-running (installed as a service or started manually) — cold-start CLI is a fallback, not the primary usage pattern.
-- MCP/SSE protocol support is out of scope for this spec — it will be covered in a separate spec.
-- File watching covers local reference set changes only. Remote set fetching (URL-based auto-update) is out of scope — covered in a separate spec.
-- Service management (install/uninstall as system service) is out of scope — covered in a separate spec.
+- ~~The daemon is long-running (installed as a service or started manually) — cold-start CLI is a fallback, not the primary usage pattern.~~ *Superseded by spec 004: daemon removed. CLI runs in-process, MCP server is session-scoped (spawned by client).*
+- ~~MCP/SSE protocol support is out of scope for this spec — it will be covered in a separate spec.~~ *Implemented in spec 004.*
+- ~~File watching covers local reference set changes only.~~ *File watcher removed in spec 004. Reference sets load once at startup.*
+- ~~Service management (install/uninstall as system service) is out of scope.~~ *No longer applicable — no daemon.*
