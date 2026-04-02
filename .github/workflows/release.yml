@@ -39,8 +39,7 @@ jobs:
       contents: write
       id-token: write
     outputs:
-      tag: ${{ steps.release.outputs.tag }}
-      released: ${{ steps.release.outputs.releases_created }}
+      releases: ${{ steps.release.outputs.releases }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,7 +59,7 @@ jobs:
   build-binaries:
     name: Build (${{ matrix.target }})
     needs: release
-    if: needs.release.outputs.released == 'true'
+    if: ${{ needs.release.outputs.releases != '[]' && needs.release.outputs.releases != '' }}
     strategy:
       matrix:
         include:
@@ -75,9 +74,16 @@ jobs:
             binary: csn.exe
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Extract tag from releases
+        id: extract
+        shell: bash
+        run: echo "tag=$(echo '$RELEASES' | jq -r '.[0].tag')" >> "$GITHUB_OUTPUT"
+        env:
+          RELEASES: ${{ needs.release.outputs.releases }}
+
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.release.outputs.tag }}
+          ref: ${{ steps.extract.outputs.tag }}
 
       - uses: dtolnay/rust-toolchain@1.92.0
         with:
@@ -112,5 +118,5 @@ jobs:
         run: gh release upload "$TAG" csn-"${TARGET}".* --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.release.outputs.tag }}
+          TAG: ${{ steps.extract.outputs.tag }}
           TARGET: ${{ matrix.target }}
