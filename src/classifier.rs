@@ -413,8 +413,7 @@ mod tests {
     // --- Multi-category MLP tests ---
 
     fn make_trained_multi_model() -> TrainedMultiCatModel {
-        let config =
-            crate::mlp::MultiCatMlpConfig::new(384 + 3 * 2 + CHAR_NGRAM_DIM, 2);
+        let config = crate::mlp::MultiCatMlpConfig::new(384 + 3 * 2 + CHAR_NGRAM_DIM, 2);
         let device = <TestBackend as Backend>::Device::default();
         let classifier = config.init::<TestBackend>(&device);
 
@@ -496,7 +495,10 @@ mod tests {
                 "unexpected category: {}",
                 score.category
             );
-            assert!(!score.top_phrase.is_empty(), "top_phrase should not be empty");
+            assert!(
+                !score.top_phrase.is_empty(),
+                "top_phrase should not be empty"
+            );
         }
     }
 }

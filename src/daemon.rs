@@ -168,7 +168,8 @@ impl DaemonHandler {
             Err(_) => return DaemonResponse::error("engine lock poisoned"),
         };
 
-        match classifier::classify_text(&mut engine, text, set, trained_model, trained_multi_model) {
+        match classifier::classify_text(&mut engine, text, set, trained_model, trained_multi_model)
+        {
             Ok(result) => match serde_json::to_value(&result) {
                 Ok(v) => DaemonResponse::success(v),
                 Err(e) => DaemonResponse::error(format!("serialization error: {e}")),

@@ -726,8 +726,7 @@ pub fn train_multi_mlp(
     {
         for (sample_idx, emb) in embeddings.iter().enumerate() {
             // Exclude self from this category's embeddings to avoid leakage.
-            let mut leave_one_out: Vec<(String, Vec<Embedding>)> =
-                category_embeddings.to_vec();
+            let mut leave_one_out: Vec<(String, Vec<Embedding>)> = category_embeddings.to_vec();
             leave_one_out[cat_idx].1 = embeddings
                 .iter()
                 .enumerate()
@@ -946,7 +945,10 @@ pub fn train_multi_models_at_startup(
         }
     }
 
-    tracing::info!(count = trained.len(), "multi-category MLP startup training complete");
+    tracing::info!(
+        count = trained.len(),
+        "multi-category MLP startup training complete"
+    );
     Ok(trained)
 }
 
@@ -1372,23 +1374,11 @@ mod tests {
         // Alpha: max=1.0 (identical), mean=0.5, margin=1.0-(-1.0)=2.0
         assert!((feats[0] - 1.0).abs() < 1e-6, "alpha max = {}", feats[0]);
         assert!((feats[1] - 0.5).abs() < 1e-6, "alpha mean = {}", feats[1]);
-        assert!(
-            (feats[2] - 2.0).abs() < 1e-6,
-            "alpha margin = {}",
-            feats[2]
-        );
+        assert!((feats[2] - 2.0).abs() < 1e-6, "alpha margin = {}", feats[2]);
 
         // Beta: max=-1.0, mean=-1.0, margin=-1.0-1.0=-2.0
-        assert!(
-            (feats[3] - (-1.0)).abs() < 1e-6,
-            "beta max = {}",
-            feats[3]
-        );
-        assert!(
-            (feats[4] - (-1.0)).abs() < 1e-6,
-            "beta mean = {}",
-            feats[4]
-        );
+        assert!((feats[3] - (-1.0)).abs() < 1e-6, "beta max = {}", feats[3]);
+        assert!((feats[4] - (-1.0)).abs() < 1e-6, "beta mean = {}", feats[4]);
         assert!(
             (feats[5] - (-2.0)).abs() < 1e-6,
             "beta margin = {}",
@@ -1422,14 +1412,8 @@ mod tests {
         let binary_hash = content_hash(&binary_pos, &binary_neg);
 
         let multi_cats = vec![
-            (
-                "positive".to_string(),
-                vec!["hello".to_string()],
-            ),
-            (
-                "negative".to_string(),
-                vec!["bad".to_string()],
-            ),
+            ("positive".to_string(), vec!["hello".to_string()]),
+            ("negative".to_string(), vec!["bad".to_string()]),
         ];
         let multi_hash = multi_content_hash(&multi_cats);
 

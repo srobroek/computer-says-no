@@ -140,9 +140,14 @@ impl McpHandler {
             .lock()
             .map_err(|_| CallToolError::from_message("engine lock poisoned".to_string()))?;
 
-        let result =
-            classifier::classify_text(&mut engine, &tool.text, set, trained_model, trained_multi_model)
-                .map_err(|e| CallToolError::from_message(e.to_string()))?;
+        let result = classifier::classify_text(
+            &mut engine,
+            &tool.text,
+            set,
+            trained_model,
+            trained_multi_model,
+        )
+        .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
         let json = serde_json::to_string_pretty(&result)
             .map_err(|e| CallToolError::from_message(format!("serialization error: {e}")))?;
@@ -159,11 +164,20 @@ impl McpHandler {
                     ReferenceSetKind::Binary(_) => "binary",
                     ReferenceSetKind::MultiCategory(_) => "multi-category",
                 };
-                serde_json::json!({
+                let mut val = serde_json::json!({
                     "name": s.metadata.name,
                     "mode": mode,
                     "phrase_count": s.phrase_count(),
-                })
+                });
+                if let ReferenceSetKind::MultiCategory(m) = &s.kind {
+                    let categories: serde_json::Map<String, serde_json::Value> = m
+                        .categories
+                        .iter()
+                        .map(|(name, cat)| (name.clone(), serde_json::json!(cat.phrases.len())))
+                        .collect();
+                    val["categories"] = serde_json::Value::Object(categories);
+                }
+                val
             })
             .collect();
 
