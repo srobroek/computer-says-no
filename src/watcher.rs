@@ -97,7 +97,11 @@ fn reload_sets(state: &AppState) {
                     *sets = new_sets;
                     let mut models = state.trained_models.lock().unwrap();
                     *models = new_models;
-                    tracing::info!(count, model_count, "reference sets reloaded and MLP models retrained");
+                    tracing::info!(
+                        count,
+                        model_count,
+                        "reference sets reloaded and MLP models retrained"
+                    );
                 }
                 Err(e) => {
                     // MLP training failed — still swap the sets so embedding-only classify works
@@ -180,11 +184,11 @@ mod tests {
         let result = train_models_at_startup(
             &[],
             tmp.path(),
-            0.001,  // learning_rate
-            1e-4,   // weight_decay
-            100,    // max_epochs
-            5,      // patience
-            false,  // fallback
+            0.001, // learning_rate
+            1e-4,  // weight_decay
+            100,   // max_epochs
+            5,     // patience
+            false, // fallback
         );
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());

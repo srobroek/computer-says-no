@@ -1,6 +1,3 @@
-// TODO: remove allow(dead_code) once mlp module is wired into the classifier
-#![allow(dead_code)]
-
 use std::path::{Path, PathBuf};
 
 use burn::backend::{Autodiff, NdArray};
@@ -48,6 +45,7 @@ pub struct TrainedModel {
     /// Name of the binary reference set this model was trained on.
     pub reference_set_name: String,
     /// blake3 hash of the reference set phrases (cache key for weight files).
+    #[allow(dead_code)]
     pub content_hash: String,
     /// The trained MLP classifier using the NdArray inference backend.
     pub classifier: MlpClassifier<NdArray<f32>>,
