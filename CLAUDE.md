@@ -69,6 +69,8 @@ just clean        # cargo clean
 - JSON files in `datasets/` directory, JSON output for results (002-model-benchmark-harness)
 - Rust 2024 edition (1.92) + burn 0.20+ (burn-ndarray), existing: fastembed 5.13, axum 0.8, clap 4, notify 7, blake3 (003-mlp-classifier)
 - MLP weight cache in `~/.cache/computer-says-no/mlp/{hash}.mpk` (Burn NamedMpkFileRecorder) (003-mlp-classifier)
+- Rust 2024 edition (1.92) + rust-mcp-sdk (stdio transport, tool macros), existing: fastembed 5.13, clap 4, burn 0.20 (004-mcp-sse)
+- TOML config, TOML reference sets, binary MLP weight cache (unchanged) (004-mcp-sse)
 
 ## Recent Changes
 - 003-mlp-classifier: MLP binary classifier — Burn framework, combined pipeline (embedding + cosine features → MLP), 94.4% accuracy, weight caching, hot-reload retrain, configurable host, 40 unit tests + integration test + manual benchmark script
