@@ -1,3 +1,4 @@
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use burn::backend::{Autodiff, NdArray};
@@ -8,6 +9,7 @@ use burn::optim::{AdamConfig, GradientsParams, Optimizer};
 use burn::prelude::*;
 use burn::record::{FullPrecisionSettings, NamedMpkFileRecorder};
 use burn::tensor::activation;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::model::{Embedding, cosine_similarity};
 use crate::reference_set::{ReferenceSet, ReferenceSetKind};
@@ -60,8 +62,8 @@ pub struct TrainedModel {
 /// Configuration for creating an [`MlpClassifier`].
 #[derive(Config, Debug)]
 pub struct MlpConfig {
-    /// Input feature dimension (embedding dim + 3 cosine features).
-    #[config(default = 387)]
+    /// Input feature dimension (embedding dim + 3 cosine features + 256 char n-gram features).
+    #[config(default = 643)]
     pub input_dim: usize,
     /// First hidden layer size.
     #[config(default = 256)]
@@ -120,6 +122,51 @@ pub fn compute_cosine_features(
     [max_pos, max_neg, max_pos - max_neg]
 }
 
+/// Dimension of the character n-gram feature vector.
+pub const CHAR_NGRAM_DIM: usize = 256;
+
+/// Compute a fixed-size character n-gram feature vector from text.
+///
+/// NFC-normalizes, lowercases, pads with `^`/`$`, extracts character bigrams and
+/// trigrams, hashes each to a bucket (0..255), counts occurrences, and L1-normalizes.
+/// Returns a 256-dim `Vec<f32>`.
+pub fn char_ngram_features(text: &str) -> Vec<f32> {
+    let normalized: String = text.nfc().collect::<String>().to_lowercase();
+    let padded = format!("^{normalized}$");
+    let chars: Vec<char> = padded.chars().collect();
+
+    let mut counts = vec![0u32; CHAR_NGRAM_DIM];
+    let mut total = 0u32;
+
+    // Bigrams
+    for window in chars.windows(2) {
+        let ngram: String = window.iter().collect();
+        let bucket = hash_ngram(&ngram);
+        counts[bucket] += 1;
+        total += 1;
+    }
+
+    // Trigrams
+    for window in chars.windows(3) {
+        let ngram: String = window.iter().collect();
+        let bucket = hash_ngram(&ngram);
+        counts[bucket] += 1;
+        total += 1;
+    }
+
+    // L1 normalize
+    if total == 0 {
+        return vec![0.0; CHAR_NGRAM_DIM];
+    }
+    counts.iter().map(|&c| c as f32 / total as f32).collect()
+}
+
+fn hash_ngram(ngram: &str) -> usize {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    ngram.hash(&mut hasher);
+    (hasher.finish() as usize) % CHAR_NGRAM_DIM
+}
+
 /// Train an MLP binary classifier from positive and negative phrase embeddings.
 ///
 /// Builds training data by computing cosine features (max_pos, max_neg, margin)
@@ -129,9 +176,12 @@ pub fn compute_cosine_features(
 ///
 /// Returns the trained model on the inference backend (`NdArray<f32>`) via
 /// `model.valid()`, which strips the autodiff wrapper.
+#[allow(clippy::too_many_arguments)]
 pub fn train_mlp(
     pos_embeddings: &[Embedding],
     neg_embeddings: &[Embedding],
+    pos_phrases: &[String],
+    neg_phrases: &[String],
     learning_rate: f64,
     weight_decay: f64,
     max_epochs: usize,
@@ -152,7 +202,7 @@ pub fn train_mlp(
         .or(neg_embeddings.first())
         .map(|e| e.len())
         .unwrap_or(384);
-    let feature_dim = embed_dim + 3; // embedding + [max_pos, max_neg, margin]
+    let feature_dim = embed_dim + 3 + CHAR_NGRAM_DIM; // embedding + cosine + char n-grams
 
     // Configure MLP with actual feature dimension (varies by embedding model).
     let config = MlpConfig::new().with_input_dim(feature_dim);
@@ -170,8 +220,10 @@ pub fn train_mlp(
             .map(|(_, e)| e.clone())
             .collect();
         let cosine = compute_cosine_features(emb, &others_pos, neg_embeddings);
+        let char_feats = char_ngram_features(&pos_phrases[i]);
         features.extend_from_slice(emb);
         features.extend_from_slice(&cosine);
+        features.extend_from_slice(&char_feats);
         labels.push(1);
     }
 
@@ -184,8 +236,10 @@ pub fn train_mlp(
             .map(|(_, e)| e.clone())
             .collect();
         let cosine = compute_cosine_features(emb, pos_embeddings, &others_neg);
+        let char_feats = char_ngram_features(&neg_phrases[i]);
         features.extend_from_slice(emb);
         features.extend_from_slice(&cosine);
+        features.extend_from_slice(&char_feats);
         labels.push(0);
     }
 
@@ -260,8 +314,8 @@ pub fn content_hash(positive_phrases: &[String], negative_phrases: &[String]) ->
     let mut negatives: Vec<&str> = negative_phrases.iter().map(String::as_str).collect();
     negatives.sort();
 
-    let combined: String = positives
-        .into_iter()
+    let combined: String = std::iter::once("v2-char256")
+        .chain(positives)
         .chain(negatives)
         .collect::<Vec<&str>>()
         .join("\n");
@@ -366,7 +420,7 @@ pub fn train_models_at_startup(
             .or(bin.negative.first())
             .map(|e| e.len())
             .unwrap_or(384);
-        let feature_dim = embed_dim + 3;
+        let feature_dim = embed_dim + 3 + CHAR_NGRAM_DIM;
         let config = MlpConfig::new().with_input_dim(feature_dim);
 
         // FR-004: compute content hash and check cache.
@@ -445,6 +499,8 @@ fn do_train(
     match train_mlp(
         &bin.positive,
         &bin.negative,
+        &bin.positive_phrases,
+        &bin.negative_phrases,
         learning_rate,
         weight_decay,
         max_epochs,
@@ -480,7 +536,7 @@ mod tests {
     #[test]
     fn config_default_values() {
         let config = MlpConfig::new();
-        assert_eq!(config.input_dim, 387);
+        assert_eq!(config.input_dim, 643);
         assert_eq!(config.hidden1, 256);
         assert_eq!(config.hidden2, 128);
     }
@@ -492,7 +548,7 @@ mod tests {
         let model = config.init::<TestBackend>(&device);
 
         // Verify layer dimensions via weight shapes.
-        assert_eq!(model.linear1.weight.dims(), [387, 256]);
+        assert_eq!(model.linear1.weight.dims(), [643, 256]);
         assert_eq!(model.linear2.weight.dims(), [256, 128]);
         assert_eq!(model.output.weight.dims(), [128, 1]);
     }
@@ -505,7 +561,7 @@ mod tests {
 
         let batch = 4;
         let input = Tensor::<TestBackend, 2>::random(
-            [batch, 387],
+            [batch, 643],
             burn::tensor::Distribution::Uniform(-1.0, 1.0),
             &device,
         );
@@ -659,7 +715,7 @@ mod tests {
         let model = config.init::<TestBackend>(&device);
 
         // Create a deterministic input tensor.
-        let input = Tensor::<TestBackend, 2>::ones([2, 387], &device);
+        let input = Tensor::<TestBackend, 2>::ones([2, 643], &device);
 
         // Run forward pass on original model.
         let output_before: Vec<f32> = model.forward(input.clone()).into_data().to_vec().unwrap();
@@ -693,5 +749,86 @@ mod tests {
 
         // Cleanup.
         let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn char_ngram_features_produces_256_dim_vector() {
+        let features = char_ngram_features("hello");
+        assert_eq!(features.len(), CHAR_NGRAM_DIM);
+
+        // L1 normalized: sum should be ~1.0
+        let sum: f32 = features.iter().sum();
+        assert!(
+            (sum - 1.0).abs() < 0.01,
+            "L1 norm sum = {sum}, expected ~1.0"
+        );
+
+        // At least some buckets should be non-zero
+        let non_zero = features.iter().filter(|&&v| v > 0.0).count();
+        assert!(non_zero > 0, "should have non-zero buckets");
+    }
+
+    #[test]
+    fn char_ngram_features_length_independent() {
+        let short = char_ngram_features("a");
+        let long = char_ngram_features("a very long sentence with many words");
+        assert_eq!(short.len(), CHAR_NGRAM_DIM);
+        assert_eq!(long.len(), CHAR_NGRAM_DIM);
+    }
+
+    #[test]
+    fn char_ngram_features_empty_string() {
+        let features = char_ngram_features("");
+        assert_eq!(features.len(), CHAR_NGRAM_DIM);
+        // ^$ still produces bigram "^$" and no trigrams
+        let sum: f32 = features.iter().sum();
+        assert!(sum > 0.0, "even empty string produces ^$ n-grams");
+    }
+
+    #[test]
+    fn char_ngram_typo_similarity() {
+        let original = char_ngram_features("wtf");
+        let typo = char_ngram_features("wwtf");
+
+        // Count shared non-zero buckets
+        let orig_nonzero: std::collections::HashSet<usize> = original
+            .iter()
+            .enumerate()
+            .filter(|&(_, &v)| v > 0.0)
+            .map(|(i, _)| i)
+            .collect();
+        let typo_nonzero: std::collections::HashSet<usize> = typo
+            .iter()
+            .enumerate()
+            .filter(|&(_, &v)| v > 0.0)
+            .map(|(i, _)| i)
+            .collect();
+
+        let shared = orig_nonzero.intersection(&typo_nonzero).count();
+        let total = orig_nonzero.union(&typo_nonzero).count();
+        let overlap = shared as f32 / total as f32;
+
+        assert!(
+            overlap > 0.3,
+            "typo variants should share >30% of buckets, got {:.0}%",
+            overlap * 100.0
+        );
+    }
+
+    #[test]
+    fn content_hash_v2_differs_from_v1() {
+        // The v2 hash should differ from a plain hash of the same phrases
+        let pos = vec!["hello".to_string()];
+        let neg = vec!["bad".to_string()];
+        let v2_hash = content_hash(&pos, &neg);
+
+        // Simulate v1 hash (no version prefix)
+        let combined = "hello\nbad";
+        let v1_hash = blake3::hash(combined.as_bytes()).to_hex().to_string();
+
+        assert_ne!(
+            v2_hash, v1_hash,
+            "v2 hash must differ from v1 (cache invalidation)"
+        );
     }
 }

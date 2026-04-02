@@ -58,7 +58,7 @@ just clean        # cargo clean
 
 ## Testing
 
-- Unit tests: `cargo test --bin csn` (50 tests: config, model, classifier, reference_set, embedding_cache, benchmark, dataset, mlp, mcp, daemon, client)
+- Unit tests: `cargo test --bin csn` (55 tests: config, model, classifier, reference_set, embedding_cache, benchmark, dataset, mlp, mcp, daemon, client)
 - Integration: `cargo test --test integration_test -- --ignored` (spawns `csn mcp`, tests MCP protocol via stdio — requires model download)
 - Benchmark tests: `cargo test --test benchmark_test` (validates dataset structure, labels, tier distribution)
 - Benchmarks: `just bench` (runs `csn benchmark run` — requires model download, not available in CI/sandbox)
@@ -72,9 +72,12 @@ just clean        # cargo clean
 - rust-mcp-sdk 0.9 (stdio transport, tool macros), async-trait (004-mcp-sse)
 - nix 0.29 (signal, process), unix socket daemon, JSON lines protocol (005-lazy-daemon)
 - Daemon files in `~/.cache/computer-says-no/` (csn.sock, csn.pid, csn.lock) (005-lazy-daemon)
+- unicode-normalization 0.1, std::hash for character n-gram feature hashing (007-char-ngram-features)
+- MLP input: 643-dim (384 embedding + 3 cosine + 256 char n-grams), cache key versioned v2-char256 (007-char-ngram-features)
 
 ## Recent Changes
-- 005-lazy-daemon: Lazy auto-starting background daemon — unix socket, idle timeout, auto-spawn, `csn stop`, 50 unit tests
+- 007-char-ngram-features: Character n-gram features for typo robustness — 256-dim feature hashing, MLP input 643-dim, 55 tests
+- 005-lazy-daemon: Lazy auto-starting background daemon — unix socket, idle timeout, auto-spawn, `csn stop`
 - 004-mcp-sse: MCP stdio server — 4 tools (classify, list_sets, embed, similarity), removed REST daemon/watcher/standalone
 - 003-mlp-classifier: MLP binary classifier — Burn framework, combined pipeline (embedding + cosine features → MLP), 94.4% accuracy, weight caching
 - 002-model-benchmark-harness: Benchmark harness — 12-model comparison, 6 datasets (500 prompts each), strategy comparison, table/JSON output
