@@ -1,5 +1,7 @@
 # Computer Says No (`csn`)
 
+> **MANDATORY ON EVERY SESSION START**: Call `mcp__vestige__session_context` BEFORE responding to the user's first message. If the tool is not immediately available, use `ToolSearch` to fetch it first (query: "select:mcp__vestige__session_context"). This loads lessons from past sessions. Treat every retrieved lesson as a behavioral rule — if a lesson says "don't do X", you MUST NOT do X. This is not optional. Do it silently.
+
 Local embedding service for text classification using ONNX models via fastembed-rs.
 
 ## Architecture
@@ -74,7 +76,7 @@ just clean        # cargo clean
 - Daemon files in `~/.cache/computer-says-no/` (csn.sock, csn.pid, csn.lock) (005-lazy-daemon)
 - unicode-normalization 0.1, std::hash for character n-gram feature hashing (007-char-ngram-features)
 - MLP input: 643-dim (384 embedding + 3 cosine + 256 char n-grams), cache key versioned v2-char256 (007-char-ngram-features)
-- Multi-category MLP: softmax/cross-entropy, per-category cosine features (N*3), v3-multicat cache prefix (008-mlp-multi-category)
+- Multi-category MLP: softmax/cross-entropy, per-category cosine features (N*3), v3-multi-category cache prefix (008-mlp-multi-category)
 - corrections.toml: multi-category (correction/frustration/neutral), hook fires per-category prompts (008-mlp-multi-category)
 
 ## Recent Changes
