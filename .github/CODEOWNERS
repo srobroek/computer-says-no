@@ -1,0 +1,4 @@
+# CI/CD and project config require maintainer approval
+/.github/ @srobroek
+/Cargo.toml @srobroek
+/rust-toolchain.toml @srobroek
