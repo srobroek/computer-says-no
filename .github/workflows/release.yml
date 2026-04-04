@@ -23,15 +23,15 @@ jobs:
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
 
-      - uses: dtolnay/rust-toolchain@1.92.0
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@b5826f8eb73f40ac7c19ef631dce17a9680f8129 # 1.92.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Run release-plz release-pr
-        uses: release-plz/action@v0.5
+        uses: release-plz/action@1528104d2ca23787631a1c1f022abb64b34c1e11 # v0.5
         with:
           command: release-pr
         env:
@@ -52,15 +52,15 @@ jobs:
     outputs:
       releases: ${{ steps.release.outputs.releases }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
 
-      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: dtolnay/rust-toolchain@b5826f8eb73f40ac7c19ef631dce17a9680f8129 # 1.92.0
 
       - name: Run release-plz release
         id: release
-        uses: release-plz/action@v0.5
+        uses: release-plz/action@1528104d2ca23787631a1c1f022abb64b34c1e11 # v0.5
         with:
           command: release
         env:
@@ -94,14 +94,14 @@ jobs:
         env:
           RELEASES: ${{ needs.release.outputs.releases }}
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ steps.extract.outputs.tag }}
 
-      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: dtolnay/rust-toolchain@b5826f8eb73f40ac7c19ef631dce17a9680f8129 # 1.92.0
         with:
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Build release
         run: cargo build --release --target ${{ matrix.target }}
