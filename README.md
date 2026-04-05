@@ -110,12 +110,20 @@ The MCP server (`csn mcp`) is separate — it runs over stdio and is managed by 
 
 Hooks let your agent automatically detect and respond to user corrections, frustration, or any custom signal. See [Installation](#installation) first.
 
+### Memory integration (recommended)
+
+For the best experience, pair csn with [Vestige](https://github.com/miversen33/vestige) — a spaced-repetition memory server for AI agents. When the hook detects a correction or frustration, the agent saves a lesson to vestige. On the next session, the agent retrieves those lessons and applies them as behavioral rules — so it doesn't repeat the same mistakes.
+
+Without vestige, the hook still works — the agent steers its tone and can save lessons to file-based memory (MEMORY.md or similar). Vestige adds spaced repetition, semantic search, and automatic deduplication on top.
+
 ### Integration
 
 The core pattern: pipe the user message through `csn classify --json`, check the category, and inject context into the agent.
 
 <details>
 <summary><strong>Claude Code</strong></summary>
+
+Download the hook:
 
 ```bash
 mkdir -p .claude/hooks
@@ -124,7 +132,7 @@ curl -fsSL -o .claude/hooks/user-frustration-check.sh \
 chmod +x .claude/hooks/user-frustration-check.sh
 ```
 
-Add to `.claude/settings.json`:
+Register in `.claude/settings.json`:
 
 ```json
 {
@@ -143,12 +151,22 @@ Add to `.claude/settings.json`:
   }
 }
 ```
+
+For lesson persistence, add to your `CLAUDE.md` (project or global):
+
+```markdown
+> **MANDATORY ON EVERY SESSION START**: Call `mcp__vestige__session_context`
+> BEFORE responding to the user's first message. Treat retrieved lessons as
+> behavioral rules. Do it silently.
+```
+
+This ensures the agent loads past lessons on every session start and applies them.
 </details>
 
 <details>
 <summary><strong>Cursor</strong></summary>
 
-Add a rule in `.cursorrules` that invokes csn:
+Add a rule in `.cursorrules`:
 
 ```
 Before responding to user messages, classify the input:
@@ -181,11 +199,11 @@ Adapt the output format to your agent's hook protocol.
 
 ### Configure threshold
 
-Default: 60% confidence (tuned for multi-category where softmax distributes probability across categories):
+Default: 70% confidence (tuned to avoid false positives on neutral text):
 
 ```bash
-export CSN_FRUSTRATION_THRESHOLD=0.50  # more sensitive
-export CSN_FRUSTRATION_THRESHOLD=0.80  # less sensitive
+export CSN_FRUSTRATION_THRESHOLD=0.60  # more sensitive
+export CSN_FRUSTRATION_THRESHOLD=0.85  # less sensitive
 ```
 
 ### What the hook detects
@@ -398,7 +416,7 @@ All config file settings can be overridden via environment variables:
 | `CSN_CACHE_DIR` | Platform cache dir | Path to model/weight cache |
 | `CSN_IDLE_TIMEOUT` | `300` | Daemon idle timeout in seconds before self-exit |
 | `CSN_MLP_FALLBACK` | `false` | If `true`, fall back to cosine-only when MLP training fails |
-| `CSN_FRUSTRATION_THRESHOLD` | `0.60` | Confidence threshold for the hook (0.0–1.0) |
+| `CSN_FRUSTRATION_THRESHOLD` | `0.70` | Confidence threshold for the hook (0.0–1.0) |
 
 ## Performance
 
