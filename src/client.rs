@@ -16,9 +16,8 @@ pub fn try_daemon_request(config: &AppConfig, request: &DaemonRequest) -> Option
     let socket_path = config.socket_path();
 
     // Try to connect
-    let stream = match UnixStream::connect(&socket_path) {
-        Ok(s) => s,
-        Err(_) => return None,
+    let Ok(stream) = UnixStream::connect(&socket_path) else {
+        return None;
     };
 
     // Set timeouts to avoid hanging
@@ -44,14 +43,12 @@ fn send_request(mut stream: UnixStream, request: &DaemonRequest) -> Result<Daemo
 
 /// Check if the daemon process is alive by reading the PID file and signaling.
 pub fn is_daemon_alive(pid_path: &Path) -> bool {
-    let content = match std::fs::read_to_string(pid_path) {
-        Ok(c) => c,
-        Err(_) => return false,
+    let Ok(content) = std::fs::read_to_string(pid_path) else {
+        return false;
     };
 
-    let pid: i32 = match content.trim().parse() {
-        Ok(p) => p,
-        Err(_) => return false,
+    let Ok(pid) = content.trim().parse::<i32>() else {
+        return false;
     };
 
     // kill(pid, None) = signal 0 = check if process exists
@@ -66,6 +63,8 @@ fn cleanup_stale_files(config: &AppConfig) {
 
 /// Spawn the daemon as a detached background process.
 fn spawn_daemon(config: &AppConfig) -> Result<()> {
+    use std::os::unix::io::AsRawFd;
+
     let exe = std::env::current_exe().context("cannot determine current executable path")?;
 
     // Ensure cache dir exists for the lock file
@@ -75,7 +74,6 @@ fn spawn_daemon(config: &AppConfig) -> Result<()> {
     let lock_path = config.lock_path();
     let lock_file = std::fs::File::create(&lock_path).context("creating daemon lock file")?;
 
-    use std::os::unix::io::AsRawFd;
     let fd = lock_file.as_raw_fd();
     let got_lock = unsafe { nix::libc::flock(fd, nix::libc::LOCK_EX | nix::libc::LOCK_NB) == 0 };
 

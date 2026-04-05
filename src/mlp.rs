@@ -49,13 +49,13 @@ pub struct TrainedModel {
     /// blake3 hash of the reference set phrases (cache key for weight files).
     #[allow(dead_code)]
     pub content_hash: String,
-    /// The trained MLP classifier using the NdArray inference backend.
+    /// The trained MLP classifier using the `NdArray` inference backend.
     pub classifier: MlpClassifier<NdArray<f32>>,
     /// Cached positive phrase embeddings for cosine feature computation.
     pub pos_embeddings: Vec<Embedding>,
     /// Cached negative phrase embeddings for cosine feature computation.
     pub neg_embeddings: Vec<Embedding>,
-    /// Positive phrase strings for top_phrase reporting during classification.
+    /// Positive phrase strings for `top_phrase` reporting during classification.
     pub pos_phrases: Vec<String>,
 }
 
@@ -169,7 +169,7 @@ fn hash_ngram(ngram: &str) -> usize {
 
 /// Train an MLP binary classifier from positive and negative phrase embeddings.
 ///
-/// Builds training data by computing cosine features (max_pos, max_neg, margin)
+/// Builds training data by computing cosine features (`max_pos`, `max_neg`, margin)
 /// for each sample and concatenating with the raw embedding to form 387-dim input
 /// vectors. Uses `Autodiff<NdArray<f32>>` for training with Adam optimizer, BCE
 /// loss, and early stopping.
@@ -199,9 +199,8 @@ pub fn train_mlp(
 
     let embed_dim = pos_embeddings
         .first()
-        .or(neg_embeddings.first())
-        .map(|e| e.len())
-        .unwrap_or(384);
+        .or_else(|| neg_embeddings.first())
+        .map_or(384, Vec::len);
     let feature_dim = embed_dim + 3 + CHAR_NGRAM_DIM; // embedding + cosine + char n-grams
 
     // Configure MLP with actual feature dimension (varies by embedding model).
@@ -310,9 +309,9 @@ pub fn train_mlp(
 /// separators (positives first, then negatives), and returns the blake3 hex digest.
 pub fn content_hash(positive_phrases: &[String], negative_phrases: &[String]) -> String {
     let mut positives: Vec<&str> = positive_phrases.iter().map(String::as_str).collect();
-    positives.sort();
+    positives.sort_unstable();
     let mut negatives: Vec<&str> = negative_phrases.iter().map(String::as_str).collect();
-    negatives.sort();
+    negatives.sort_unstable();
 
     let combined: String = std::iter::once("v2-char256")
         .chain(positives)
@@ -417,9 +416,8 @@ pub fn train_models_at_startup(
         let embed_dim = bin
             .positive
             .first()
-            .or(bin.negative.first())
-            .map(|e| e.len())
-            .unwrap_or(384);
+            .or_else(|| bin.negative.first())
+            .map_or(384, Vec::len);
         let feature_dim = embed_dim + 3 + CHAR_NGRAM_DIM;
         let config = MlpConfig::new().with_input_dim(feature_dim);
 
@@ -601,7 +599,7 @@ pub struct TrainedMultiCatModel {
 /// For each category (in the order given), computes:
 /// - `max_sim`: maximum cosine similarity to any phrase in the category
 /// - `mean_sim`: mean cosine similarity across all phrases in the category
-/// - `margin`: max_sim minus the best max_sim of any *other* category
+/// - `margin`: `max_sim` minus the best `max_sim` of any *other* category
 ///
 /// Returns a vector of length `N * 3` where N is the number of categories.
 pub fn compute_multi_cosine_features(
@@ -706,10 +704,8 @@ pub fn train_multi_mlp(
 
     let embed_dim = category_embeddings
         .iter()
-        .flat_map(|(_, e)| e.first())
-        .next()
-        .map(|e| e.len())
-        .unwrap_or(384);
+        .find_map(|(_, e)| e.first())
+        .map_or(384, Vec::len);
 
     let feature_dim = embed_dim + num_classes * 3 + CHAR_NGRAM_DIM;
     let config = MultiCatMlpConfig::new(feature_dim, num_classes);
@@ -886,10 +882,8 @@ pub fn train_multi_models_at_startup(
         // Compute input dimension and config.
         let embed_dim = cat_embeddings
             .iter()
-            .flat_map(|(_, e)| e.first())
-            .next()
-            .map(|e| e.len())
-            .unwrap_or(384);
+            .find_map(|(_, e)| e.first())
+            .map_or(384, Vec::len);
         let num_classes = category_names.len();
         let feature_dim = embed_dim + num_classes * 3 + CHAR_NGRAM_DIM;
         let config = MultiCatMlpConfig::new(feature_dim, num_classes);

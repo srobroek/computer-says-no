@@ -31,15 +31,39 @@ indicatif = "0.17"
 burn = { version = "0.20", default-features = false, features = ["std", "ndarray", "autodiff", "train"] }
 rust-mcp-sdk = { version = "0.9", features = ["server"] }
 async-trait = "0.1"
+unicode-normalization = "0.1"
+
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["signal", "process"] }
-unicode-normalization = "0.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 burn = { version = "0.20", default-features = false, features = ["std", "ndarray", "autodiff", "train", "accelerate"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+# Restriction lints for CLI application safety
+unwrap_used = "warn"
+expect_used = "warn"
+panic_in_result_fn = "warn"
+unwrap_in_result = "warn"
+todo = "warn"
+unimplemented = "warn"
+dbg_macro = "warn"
+missing_assert_message = "warn"
+# Intentional opt-outs from pedantic/nursery
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+# Numeric casts are pervasive and intentional in ML/embedding code
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
 
 [profile.release]
 opt-level = 3

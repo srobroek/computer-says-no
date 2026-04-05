@@ -53,14 +53,16 @@ pub enum ClassifyResult {
 
 #[allow(dead_code)]
 impl ClassifyResult {
-    pub fn is_match(&self) -> bool {
+    #[must_use]
+    pub const fn is_match(&self) -> bool {
         match self {
             Self::Binary(r) => r.is_match,
             Self::MultiCategory(r) => r.is_match,
         }
     }
 
-    pub fn confidence(&self) -> f32 {
+    #[must_use]
+    pub const fn confidence(&self) -> f32 {
         match self {
             Self::Binary(r) => r.confidence,
             Self::MultiCategory(r) => r.confidence,
@@ -139,11 +141,14 @@ fn classify_with_text(
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
 
-            let best = all_scores.first().cloned().unwrap_or(CategoryScore {
-                category: String::new(),
-                score: 0.0,
-                top_phrase: String::new(),
-            });
+            let best = all_scores
+                .first()
+                .cloned()
+                .unwrap_or_else(|| CategoryScore {
+                    category: String::new(),
+                    score: 0.0,
+                    top_phrase: String::new(),
+                });
 
             ClassifyResult::MultiCategory(MultiCategoryResult {
                 is_match: best.score >= threshold,
@@ -259,7 +264,7 @@ pub fn classify_with_multi_mlp(
 
     let logits = trained_model.classifier.forward(input);
     let probs = burn::tensor::activation::softmax(logits, 1);
-    let probs_data: Vec<f32> = probs.into_data().to_vec().unwrap();
+    let probs_data: Vec<f32> = probs.into_data().to_vec().unwrap_or_default();
 
     // Build per-category scores with top phrase from cosine similarity.
     let mut all_scores: Vec<CategoryScore> = trained_model
@@ -271,11 +276,13 @@ pub fn classify_with_multi_mlp(
                 .category_phrases
                 .iter()
                 .find(|(n, _)| n == name)
-                .map(|(_, phrases)| {
-                    let embeddings = &trained_model.category_embeddings[i].1;
-                    best_match(text_embedding, embeddings, phrases)
-                })
-                .unwrap_or((0.0, String::new()));
+                .map_or_else(
+                    || (0.0, String::new()),
+                    |(_, phrases)| {
+                        let embeddings = &trained_model.category_embeddings[i].1;
+                        best_match(text_embedding, embeddings, phrases)
+                    },
+                );
 
             CategoryScore {
                 category: name.clone(),
@@ -293,11 +300,14 @@ pub fn classify_with_multi_mlp(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    let best = all_scores.first().cloned().unwrap_or(CategoryScore {
-        category: String::new(),
-        score: 0.0,
-        top_phrase: String::new(),
-    });
+    let best = all_scores
+        .first()
+        .cloned()
+        .unwrap_or_else(|| CategoryScore {
+            category: String::new(),
+            score: 0.0,
+            top_phrase: String::new(),
+        });
 
     MultiCategoryResult {
         is_match: best.score >= threshold,
@@ -317,7 +327,7 @@ fn best_match(query: &Embedding, embeddings: &[Embedding], phrases: &[String]) -
         let score = cosine_similarity(query, emb);
         if score > best_score {
             best_score = score;
-            best_phrase = phrase.clone();
+            phrase.clone_into(&mut best_phrase);
         }
     }
 

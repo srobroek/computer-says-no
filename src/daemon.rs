@@ -32,7 +32,7 @@ pub struct DaemonResponse {
 }
 
 impl DaemonResponse {
-    pub fn success(result: serde_json::Value) -> Self {
+    pub const fn success(result: serde_json::Value) -> Self {
         Self {
             ok: true,
             result: Some(result),
@@ -68,7 +68,7 @@ impl IdleTracker {
     fn now() -> u64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs()
     }
 
@@ -92,7 +92,7 @@ struct DaemonHandler {
 }
 
 impl DaemonHandler {
-    fn new(
+    const fn new(
         engine: EmbeddingEngine,
         reference_sets: Vec<ReferenceSet>,
         trained_models: Vec<TrainedModel>,
@@ -108,64 +108,56 @@ impl DaemonHandler {
         }
     }
 
-    fn dispatch(&self, req: DaemonRequest) -> DaemonResponse {
+    fn dispatch(&self, req: &DaemonRequest) -> DaemonResponse {
         match req.command.as_str() {
-            "classify" => self.handle_classify(req.args),
-            "embed" => self.handle_embed(req.args),
-            "similarity" => self.handle_similarity(req.args),
+            "classify" => self.handle_classify(&req.args),
+            "embed" => self.handle_embed(&req.args),
+            "similarity" => self.handle_similarity(&req.args),
             other => DaemonResponse::error(format!("unknown command: {other}")),
         }
     }
 
-    fn handle_classify(&self, args: serde_json::Value) -> DaemonResponse {
-        let text = match args.get("text").and_then(|v| v.as_str()) {
-            Some(t) => t,
-            None => return DaemonResponse::error("missing 'text' field"),
+    fn handle_classify(&self, args: &serde_json::Value) -> DaemonResponse {
+        let Some(text) = args.get("text").and_then(|v| v.as_str()) else {
+            return DaemonResponse::error("missing 'text' field");
         };
-        let set_name = match args.get("set").and_then(|v| v.as_str()) {
-            Some(s) => s,
-            None => return DaemonResponse::error("missing 'set' field"),
+        let Some(set_name) = args.get("set").and_then(|v| v.as_str()) else {
+            return DaemonResponse::error("missing 'set' field");
         };
 
-        let set = match self
+        let Some(set) = self
             .reference_sets
             .iter()
             .find(|s| s.metadata.name == set_name)
-        {
-            Some(s) => s,
-            None => {
-                let available: Vec<_> = self
-                    .reference_sets
-                    .iter()
-                    .map(|s| s.metadata.name.as_str())
-                    .collect();
-                return DaemonResponse::error(format!(
-                    "reference set '{}' not found. Available: {}",
-                    set_name,
-                    available.join(", ")
-                ));
-            }
+        else {
+            let available: Vec<_> = self
+                .reference_sets
+                .iter()
+                .map(|s| s.metadata.name.as_str())
+                .collect();
+            return DaemonResponse::error(format!(
+                "reference set '{}' not found. Available: {}",
+                set_name,
+                available.join(", ")
+            ));
         };
 
-        let trained_models = match self.trained_models.lock() {
-            Ok(m) => m,
-            Err(_) => return DaemonResponse::error("models lock poisoned"),
+        let Ok(trained_models) = self.trained_models.lock() else {
+            return DaemonResponse::error("models lock poisoned");
         };
         let trained_model = trained_models
             .iter()
             .find(|m| m.reference_set_name == set_name);
 
-        let trained_multi_models = match self.trained_multi_models.lock() {
-            Ok(m) => m,
-            Err(_) => return DaemonResponse::error("multi models lock poisoned"),
+        let Ok(trained_multi_models) = self.trained_multi_models.lock() else {
+            return DaemonResponse::error("multi models lock poisoned");
         };
         let trained_multi_model = trained_multi_models
             .iter()
             .find(|m| m.reference_set_name == set_name);
 
-        let mut engine = match self.engine.lock() {
-            Ok(e) => e,
-            Err(_) => return DaemonResponse::error("engine lock poisoned"),
+        let Ok(mut engine) = self.engine.lock() else {
+            return DaemonResponse::error("engine lock poisoned");
         };
 
         match classifier::classify_text(&mut engine, text, set, trained_model, trained_multi_model)
@@ -178,15 +170,13 @@ impl DaemonHandler {
         }
     }
 
-    fn handle_embed(&self, args: serde_json::Value) -> DaemonResponse {
-        let text = match args.get("text").and_then(|v| v.as_str()) {
-            Some(t) => t,
-            None => return DaemonResponse::error("missing 'text' field"),
+    fn handle_embed(&self, args: &serde_json::Value) -> DaemonResponse {
+        let Some(text) = args.get("text").and_then(|v| v.as_str()) else {
+            return DaemonResponse::error("missing 'text' field");
         };
 
-        let mut engine = match self.engine.lock() {
-            Ok(e) => e,
-            Err(_) => return DaemonResponse::error("engine lock poisoned"),
+        let Ok(mut engine) = self.engine.lock() else {
+            return DaemonResponse::error("engine lock poisoned");
         };
 
         match engine.embed_one(text) {
@@ -202,19 +192,16 @@ impl DaemonHandler {
         }
     }
 
-    fn handle_similarity(&self, args: serde_json::Value) -> DaemonResponse {
-        let a = match args.get("a").and_then(|v| v.as_str()) {
-            Some(t) => t,
-            None => return DaemonResponse::error("missing 'a' field"),
+    fn handle_similarity(&self, args: &serde_json::Value) -> DaemonResponse {
+        let Some(a) = args.get("a").and_then(|v| v.as_str()) else {
+            return DaemonResponse::error("missing 'a' field");
         };
-        let b = match args.get("b").and_then(|v| v.as_str()) {
-            Some(t) => t,
-            None => return DaemonResponse::error("missing 'b' field"),
+        let Some(b) = args.get("b").and_then(|v| v.as_str()) else {
+            return DaemonResponse::error("missing 'b' field");
         };
 
-        let mut engine = match self.engine.lock() {
-            Ok(e) => e,
-            Err(_) => return DaemonResponse::error("engine lock poisoned"),
+        let Ok(mut engine) = self.engine.lock() else {
+            return DaemonResponse::error("engine lock poisoned");
         };
 
         match engine.embed(&[a, b]) {
@@ -236,6 +223,7 @@ unsafe impl Sync for DaemonHandler {}
 
 // --- Main daemon entry point ---
 
+#[allow(clippy::too_many_lines)]
 pub fn run_daemon(config: &AppConfig) -> Result<()> {
     use crate::mlp;
     use crate::reference_set::load_all_reference_sets;
@@ -344,7 +332,7 @@ pub fn run_daemon(config: &AppConfig) -> Result<()> {
                                 let mut lines = BufReader::new(reader).lines();
                                 if let Ok(Some(line)) = lines.next_line().await {
                                     let response = match serde_json::from_str::<DaemonRequest>(&line) {
-                                        Ok(req) => handler.dispatch(req),
+                                        Ok(req) => handler.dispatch(&req),
                                         Err(e) => DaemonResponse::error(format!("invalid request: {e}")),
                                     };
                                     if let Ok(json) = serde_json::to_string(&response) {

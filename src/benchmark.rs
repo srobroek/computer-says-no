@@ -74,12 +74,12 @@ pub fn percentile(sorted: &[Duration], pct: f64) -> Duration {
     sorted[idx]
 }
 
-/// Compute coefficient of variation (std_dev / mean) for durations.
+/// Compute coefficient of variation (std-dev / mean) for durations.
 pub fn coefficient_of_variation(durations: &[Duration]) -> f64 {
     if durations.is_empty() {
         return 0.0;
     }
-    let mean = durations.iter().map(|d| d.as_secs_f64()).sum::<f64>() / durations.len() as f64;
+    let mean = durations.iter().map(Duration::as_secs_f64).sum::<f64>() / durations.len() as f64;
     if mean == 0.0 {
         return 0.0;
     }
@@ -97,9 +97,9 @@ pub fn coefficient_of_variation(durations: &[Duration]) -> f64 {
 /// Scoring strategy for the benchmark.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScoringStrategy {
-    /// Original: pos_score >= threshold && pos_score > neg_score
+    /// Original: `pos_score >= threshold && pos_score > neg_score`
     Threshold,
-    /// Margin-based: (pos_score - neg_score) > margin
+    /// Margin-based: `(pos_score - neg_score) > margin`
     Margin(u32), // margin × 1000 (stored as int to derive Eq)
     /// Adaptive: threshold calibrated from negative score distribution
     Adaptive,
@@ -110,10 +110,10 @@ impl ScoringStrategy {
         Self::Margin((m * 1000.0) as u32)
     }
 
-    pub fn name(&self) -> String {
+    pub fn name(self) -> String {
         match self {
             Self::Threshold => "threshold".to_string(),
-            Self::Margin(m) => format!("margin-{:.2}", *m as f32 / 1000.0),
+            Self::Margin(m) => format!("margin-{:.2}", m as f32 / 1000.0),
             Self::Adaptive => "adaptive".to_string(),
         }
     }
@@ -281,7 +281,7 @@ pub fn compare_strategies(
             .iter()
             .filter(|(prompt, _)| {
                 let emb = engine.embed_one(&prompt.text).ok();
-                if let Some(emb) = emb {
+                emb.is_some_and(|emb| {
                     let mlp_result =
                         classifier::classify_with_mlp(&emb, &prompt.text, &trained_model);
                     match prompt.polarity {
@@ -290,9 +290,7 @@ pub fn compare_strategies(
                         }
                         Polarity::Negative => !mlp_result.is_match,
                     }
-                } else {
-                    false
-                }
+                })
             })
             .count();
 
@@ -488,12 +486,12 @@ pub fn run_benchmark(
 ) -> Result<BenchmarkRun> {
     let total_steps = models.len() * datasets.len();
     let pb = ProgressBar::new(total_steps as u64);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("{spinner:.green} [{bar:40}] {pos}/{len} {msg}")
-            .unwrap()
-            .progress_chars("=> "),
-    );
+    #[allow(clippy::literal_string_with_formatting_args)]
+    let style = ProgressStyle::default_bar()
+        .template("{spinner:.green} [{bar:40}] {pos}/{len} {msg}")
+        .context("invalid progress bar template")?
+        .progress_chars("=> ");
+    pb.set_style(style);
 
     let mut results = Vec::new();
 
@@ -608,11 +606,12 @@ pub fn print_table(run: &BenchmarkRun) {
 
         for model_result in &run.results {
             if let Some(ds) = model_result.datasets.iter().find(|d| d.dataset == *ds_name) {
-                let edge_acc = (ds.accuracy_by_tier.edge_pos + ds.accuracy_by_tier.edge_neg) / 2.0;
+                let edge_acc =
+                    f64::midpoint(ds.accuracy_by_tier.edge_pos, ds.accuracy_by_tier.edge_neg);
 
                 if ds.accuracy > best_accuracy {
                     best_accuracy = ds.accuracy;
-                    best_model = model_result.model.clone();
+                    best_model.clone_from(&model_result.model);
                 }
 
                 let cv_display = if ds.latency_cv > 0.3 {

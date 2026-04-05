@@ -73,6 +73,7 @@ impl AppConfig {
     const DEFAULT_IDLE_TIMEOUT: u64 = 300; // 5 minutes
 
     /// Load config with 3-layer precedence: CLI > env > TOML file > defaults.
+    #[allow(clippy::unnecessary_wraps)]
     pub fn load(overrides: CliOverrides) -> Result<Self> {
         let config_dir = Self::config_dir();
         let file_config = Self::load_file(&config_dir);
@@ -150,26 +151,30 @@ impl AppConfig {
     }
 
     fn config_dir() -> PathBuf {
-        directories::ProjectDirs::from("", "", "computer-says-no")
-            .map(|d| d.config_dir().to_owned())
-            .unwrap_or_else(|| PathBuf::from(".config/computer-says-no"))
+        directories::ProjectDirs::from("", "", "computer-says-no").map_or_else(
+            || PathBuf::from(".config/computer-says-no"),
+            |d| d.config_dir().to_owned(),
+        )
     }
 
     fn default_cache_dir() -> PathBuf {
-        directories::ProjectDirs::from("", "", "computer-says-no")
-            .map(|d| d.cache_dir().to_owned())
-            .unwrap_or_else(|| PathBuf::from(".cache/computer-says-no"))
+        directories::ProjectDirs::from("", "", "computer-says-no").map_or_else(
+            || PathBuf::from(".cache/computer-says-no"),
+            |d| d.cache_dir().to_owned(),
+        )
     }
 
     fn load_file(config_dir: &Path) -> FileConfig {
         let path = config_dir.join("config.toml");
-        match std::fs::read_to_string(&path) {
-            Ok(content) => toml::from_str(&content).unwrap_or_else(|e| {
-                tracing::warn!(path = %path.display(), error = %e, "invalid config file, using defaults");
-                FileConfig::default()
-            }),
-            Err(_) => FileConfig::default(),
-        }
+        std::fs::read_to_string(&path).map_or_else(
+            |_| FileConfig::default(),
+            |content| {
+                toml::from_str(&content).unwrap_or_else(|e| {
+                    tracing::warn!(path = %path.display(), error = %e, "invalid config file, using defaults");
+                    FileConfig::default()
+                })
+            },
+        )
     }
 
     /// Resolve the sets directory, checking for bundled fallback.
