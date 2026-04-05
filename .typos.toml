@@ -6,6 +6,7 @@ locale = "en-us"
 onnx = "onnx"
 nomic = "nomic"
 fastembed = "fastembed"
+multicat = "multicat"
 
 [files]
 extend-exclude = [

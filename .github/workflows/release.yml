@@ -1,7 +1,9 @@
 name: Release
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
 
 permissions:
@@ -13,26 +15,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Always runs after CI passes on main.
+  # Creates/updates a version bump PR when there are releasable commits.
+  # No-op if a release PR already exists and is up to date.
   release-pr:
     name: Release PR
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
 
-      - uses: dtolnay/rust-toolchain@1.92.0
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@b5826f8eb73f40ac7c19ef631dce17a9680f8129 # 1.92.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Run release-plz release-pr
-        uses: release-plz/action@v0.5
+        uses: release-plz/action@1528104d2ca23787631a1c1f022abb64b34c1e11 # v0.5
         with:
           command: release-pr
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Only publishes when Cargo.toml version is ahead of crates.io.
+  # This happens after a release PR (which bumps the version) is merged
+  # and CI passes on that merge commit.
+  # On normal feature merges: no-op (version unchanged).
   release:
-    name: Create Release
+    name: Publish & GitHub Release
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -41,21 +52,23 @@ jobs:
     outputs:
       releases: ${{ steps.release.outputs.releases }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
 
-      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: dtolnay/rust-toolchain@b5826f8eb73f40ac7c19ef631dce17a9680f8129 # 1.92.0
 
       - name: Run release-plz release
         id: release
-        uses: release-plz/action@v0.5
+        uses: release-plz/action@1528104d2ca23787631a1c1f022abb64b34c1e11 # v0.5
         with:
           command: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
+  # Only runs when release-plz actually created a release (version was bumped).
+  # Builds cross-platform binaries and attaches to the GitHub release.
   build-binaries:
     name: Build (${{ matrix.target }})
     needs: release
@@ -77,18 +90,18 @@ jobs:
       - name: Extract tag from releases
         id: extract
         shell: bash
-        run: echo "tag=$(echo '$RELEASES' | jq -r '.[0].tag')" >> "$GITHUB_OUTPUT"
+        run: echo "tag=$(echo "$RELEASES" | jq -r '.[0].tag')" >> "$GITHUB_OUTPUT"
         env:
           RELEASES: ${{ needs.release.outputs.releases }}
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ steps.extract.outputs.tag }}
 
-      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: dtolnay/rust-toolchain@b5826f8eb73f40ac7c19ef631dce17a9680f8129 # 1.92.0
         with:
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Build release
         run: cargo build --release --target ${{ matrix.target }}
