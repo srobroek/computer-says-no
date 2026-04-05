@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4](https://github.com/srobroek/computer-says-no/compare/v0.2.3...v0.2.4) - 2026-04-05
+
+### Bug Fixes
+
+- add ci-ok gate job and fix clippy typo ([#175](https://github.com/srobroek/computer-says-no/pull/175))
+- gate release on CI, update hooks and docs ([#173](https://github.com/srobroek/computer-says-no/pull/173))
+
+### Miscellaneous
+
+- pin GitHub Actions to commit SHAs
+- pin GitHub Actions to commit SHAs
+- add CODEOWNERS for CI security
+
+### Performance
+
+- *(ci)* replace rust-cache with sccache ([#176](https://github.com/srobroek/computer-says-no/pull/176))
+
 ## [0.2.3](https://github.com/srobroek/computer-says-no/compare/v0.2.2...v0.2.3) - 2026-04-02
 
 ### Bug Fixes
