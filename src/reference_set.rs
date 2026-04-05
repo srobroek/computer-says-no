@@ -140,7 +140,7 @@ pub fn load_reference_set(
                 let pos = c.groups.iter().find(|g| g.name == "positive");
                 let neg = c.groups.iter().find(|g| g.name == "negative");
                 if let Some(pos) = pos {
-                    let negative_phrases = phrases.negative.clone().unwrap_or_default();
+                    let negative_phrases = phrases.negative.unwrap_or_default();
                     ReferenceSetKind::Binary(BinaryEmbeddings {
                         positive: pos.embeddings.clone(),
                         positive_phrases: pos.phrases.clone(),

@@ -23,7 +23,8 @@ pub enum ModelChoice {
 }
 
 impl ModelChoice {
-    pub fn as_str(&self) -> &'static str {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::AllMiniLML6V2 => "all-MiniLM-L6-v2",
             Self::AllMiniLML6V2Q => "all-MiniLM-L6-v2-Q",
@@ -40,18 +41,24 @@ impl ModelChoice {
         }
     }
 
-    pub fn dimensions(&self) -> usize {
+    #[must_use]
+    pub const fn dimensions(self) -> usize {
         match self {
-            Self::AllMiniLML6V2 | Self::AllMiniLML6V2Q => 384,
-            Self::BGESmallENV15 | Self::BGESmallENV15Q => 384,
-            Self::BGELargeENV15 | Self::BGELargeENV15Q => 1024,
+            Self::AllMiniLML6V2
+            | Self::AllMiniLML6V2Q
+            | Self::BGESmallENV15
+            | Self::BGESmallENV15Q
+            | Self::SnowflakeArcticEmbedS
+            | Self::SnowflakeArcticEmbedSQ => 384,
             Self::NomicEmbedTextV15 | Self::NomicEmbedTextV15Q => 768,
-            Self::GTELargeENV15 | Self::GTELargeENV15Q => 1024,
-            Self::SnowflakeArcticEmbedS | Self::SnowflakeArcticEmbedSQ => 384,
+            Self::BGELargeENV15
+            | Self::BGELargeENV15Q
+            | Self::GTELargeENV15
+            | Self::GTELargeENV15Q => 1024,
         }
     }
 
-    fn to_fastembed(self) -> EmbeddingModel {
+    const fn to_fastembed(self) -> EmbeddingModel {
         match self {
             Self::AllMiniLML6V2 => EmbeddingModel::AllMiniLML6V2,
             Self::AllMiniLML6V2Q => EmbeddingModel::AllMiniLML6V2Q,
@@ -68,7 +75,8 @@ impl ModelChoice {
         }
     }
 
-    pub fn all() -> &'static [ModelChoice] {
+    #[must_use]
+    pub const fn all() -> &'static [Self] {
         &[
             Self::AllMiniLML6V2,
             Self::AllMiniLML6V2Q,
@@ -105,7 +113,7 @@ impl std::str::FromStr for ModelChoice {
             "snowflake-arctic-embed-s-Q" => Ok(Self::SnowflakeArcticEmbedSQ),
             _ => anyhow::bail!(
                 "unknown model: {s}. Available: {}",
-                ModelChoice::all()
+                Self::all()
                     .iter()
                     .map(|m| m.as_str())
                     .collect::<Vec<_>>()
@@ -121,7 +129,7 @@ impl std::fmt::Display for ModelChoice {
     }
 }
 
-/// Wrapper around fastembed's TextEmbedding with cosine similarity.
+/// Wrapper around fastembed's `TextEmbedding` with cosine similarity.
 pub struct EmbeddingEngine {
     inner: TextEmbedding,
     model: ModelChoice,
@@ -139,11 +147,13 @@ impl EmbeddingEngine {
         Ok(Self { inner, model })
     }
 
-    pub fn model(&self) -> ModelChoice {
+    #[must_use]
+    pub const fn model(&self) -> ModelChoice {
         self.model
     }
 
-    pub fn dimensions(&self) -> usize {
+    #[must_use]
+    pub const fn dimensions(&self) -> usize {
         self.model.dimensions()
     }
 

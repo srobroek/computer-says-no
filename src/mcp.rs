@@ -17,9 +17,9 @@ use crate::reference_set::{ReferenceSet, ReferenceSetKind};
 
 /// Shared state for the MCP server handler.
 ///
-/// Uses Mutex for engine (not Sync due to fastembed internals) and trained_models
-/// (not Sync due to Burn NdArray). The Mutex makes McpHandler Send+Sync as
-/// required by the async ServerHandler trait.
+/// Uses Mutex for engine (not Sync due to fastembed internals) and `trained_models`
+/// (not Sync due to Burn `NdArray`). The Mutex makes `McpHandler` Send+Sync as
+/// required by the async `ServerHandler` trait.
 pub struct McpHandler {
     engine: Mutex<EmbeddingEngine>,
     reference_sets: Vec<ReferenceSet>,
@@ -33,7 +33,7 @@ pub struct McpHandler {
 unsafe impl Sync for McpHandler {}
 
 impl McpHandler {
-    pub fn new(
+    pub const fn new(
         engine: EmbeddingEngine,
         reference_sets: Vec<ReferenceSet>,
         trained_models: Vec<TrainedModel>,
@@ -101,7 +101,8 @@ tool_box!(
 // --- Tool implementations ---
 
 impl McpHandler {
-    fn handle_classify(&self, tool: ClassifyTool) -> Result<CallToolResult, CallToolError> {
+    #[allow(clippy::significant_drop_tightening)]
+    fn handle_classify(&self, tool: &ClassifyTool) -> Result<CallToolResult, CallToolError> {
         let set = self
             .reference_sets
             .iter()
@@ -187,13 +188,11 @@ impl McpHandler {
         Ok(CallToolResult::text_content(vec![TextContent::from(json)]))
     }
 
-    fn handle_embed(&self, tool: EmbedTool) -> Result<CallToolResult, CallToolError> {
-        let mut engine = self
+    fn handle_embed(&self, tool: &EmbedTool) -> Result<CallToolResult, CallToolError> {
+        let embedding = self
             .engine
             .lock()
-            .map_err(|_| CallToolError::from_message("engine lock poisoned".to_string()))?;
-
-        let embedding = engine
+            .map_err(|_| CallToolError::from_message("engine lock poisoned".to_string()))?
             .embed_one(&tool.text)
             .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
@@ -208,13 +207,11 @@ impl McpHandler {
         Ok(CallToolResult::text_content(vec![TextContent::from(json)]))
     }
 
-    fn handle_similarity(&self, tool: SimilarityTool) -> Result<CallToolResult, CallToolError> {
-        let mut engine = self
+    fn handle_similarity(&self, tool: &SimilarityTool) -> Result<CallToolResult, CallToolError> {
+        let embeddings = self
             .engine
             .lock()
-            .map_err(|_| CallToolError::from_message("engine lock poisoned".to_string()))?;
-
-        let embeddings = engine
+            .map_err(|_| CallToolError::from_message("engine lock poisoned".to_string()))?
             .embed(&[&tool.a, &tool.b])
             .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
@@ -255,7 +252,7 @@ impl ServerHandler for McpHandler {
         let tool: CsnTools =
             CsnTools::try_from(params).map_err(|e| CallToolError::from_message(e.to_string()))?;
 
-        match tool {
+        match &tool {
             CsnTools::ClassifyTool(t) => self.handle_classify(t),
             CsnTools::ListSetsTool(_) => self.handle_list_sets(),
             CsnTools::EmbedTool(t) => self.handle_embed(t),

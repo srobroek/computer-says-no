@@ -3,3 +3,4 @@ NdArray = "NdArray"
 
 [default.extend-words]
 Nd = "Nd"
+multicat = "multicat"

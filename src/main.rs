@@ -178,6 +178,7 @@ enum BenchmarkAction {
     },
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -216,7 +217,10 @@ fn main() -> Result<()> {
             cmd_similarity(&config, &a, &b)
         }
 
-        Command::Models => cmd_models(),
+        Command::Models => {
+            cmd_models();
+            Ok(())
+        }
 
         Command::Mcp => {
             let config = AppConfig::load(CliOverrides::default())?;
@@ -255,12 +259,12 @@ fn main() -> Result<()> {
                 cmd_benchmark_run(
                     &config,
                     model_filter,
-                    dataset,
+                    dataset.as_ref(),
                     iterations,
                     warmup,
                     json,
-                    output,
-                    compare,
+                    output.as_ref(),
+                    compare.as_ref(),
                 )
             }
             BenchmarkAction::CompareStrategies {
@@ -439,7 +443,7 @@ fn cmd_similarity(config: &AppConfig, a: &str, b: &str) -> Result<()> {
                     .result
                     .as_ref()
                     .and_then(|r| r.get("similarity"))
-                    .and_then(|v| v.as_f64())
+                    .and_then(serde_json::Value::as_f64)
                 {
                     println!("{sim:.4}");
                     return Ok(());
@@ -590,13 +594,12 @@ fn cmd_mcp(config: &AppConfig) -> Result<()> {
 
 // --- Local commands ---
 
-fn cmd_models() -> Result<()> {
+fn cmd_models() {
     println!("{:<30} {:>6}", "MODEL", "DIM");
     println!("{}", "-".repeat(38));
     for m in ModelChoice::all() {
         println!("{:<30} {:>6}", m.as_str(), m.dimensions());
     }
-    Ok(())
 }
 
 fn cmd_sets_list(config: &AppConfig) -> Result<()> {
@@ -652,12 +655,12 @@ fn cmd_sets_list(config: &AppConfig) -> Result<()> {
 fn cmd_benchmark_run(
     config: &AppConfig,
     model_filter: Option<ModelChoice>,
-    dataset_filter: Option<String>,
+    dataset_filter: Option<&String>,
     iterations: usize,
     warmup: usize,
     json: bool,
-    output: Option<PathBuf>,
-    compare: Option<PathBuf>,
+    output: Option<&PathBuf>,
+    compare: Option<&PathBuf>,
 ) -> Result<()> {
     let datasets_dir = &config.datasets_dir;
     let mut datasets = dataset::load_all_datasets(datasets_dir)?;
@@ -670,7 +673,7 @@ fn cmd_benchmark_run(
     }
 
     // Apply dataset filter
-    if let Some(ref filter) = dataset_filter {
+    if let Some(filter) = dataset_filter {
         datasets.retain(|d| d.name == *filter);
         if datasets.is_empty() {
             let available: Vec<_> = dataset::load_all_datasets(datasets_dir)?
@@ -686,11 +689,8 @@ fn cmd_benchmark_run(
     }
 
     // Determine models to test
-    let models: Vec<ModelChoice> = if let Some(m) = model_filter {
-        vec![m]
-    } else {
-        ModelChoice::all().to_vec()
-    };
+    let models: Vec<ModelChoice> =
+        model_filter.map_or_else(|| ModelChoice::all().to_vec(), |m| vec![m]);
 
     let sets_dir = config.resolve_sets_dir();
     let run = benchmark::run_benchmark(
@@ -700,7 +700,7 @@ fn cmd_benchmark_run(
         &config.cache_dir,
         warmup,
         iterations,
-        output.as_deref(),
+        output.map(PathBuf::as_path),
     )?;
 
     // Output results
@@ -712,7 +712,7 @@ fn cmd_benchmark_run(
     }
 
     // Save to file if requested
-    if let Some(ref path) = output {
+    if let Some(path) = output {
         let json_str = serde_json::to_string_pretty(&run)?;
         std::fs::write(path, json_str)
             .with_context(|| format!("writing results to {}", path.display()))?;
@@ -720,7 +720,7 @@ fn cmd_benchmark_run(
     }
 
     // Compare against previous run
-    if let Some(ref path) = compare {
+    if let Some(path) = compare {
         let prev_json = std::fs::read_to_string(path)
             .with_context(|| format!("reading previous results from {}", path.display()))?;
         let prev_run: benchmark::BenchmarkRun = serde_json::from_str(&prev_json)
@@ -824,10 +824,10 @@ fn cmd_generate_datasets(config: &AppConfig, output_dir: Option<PathBuf>) -> Res
 
 fn print_classify_result(result: &classifier::ClassifyResult, json: bool) {
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(result).expect("serialization failed")
-        );
+        #[allow(clippy::expect_used)]
+        let output = serde_json::to_string_pretty(result)
+            .expect("ClassifyResult serialization is infallible");
+        println!("{output}");
     } else {
         match result {
             classifier::ClassifyResult::Binary(r) => {

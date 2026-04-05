@@ -6,8 +6,9 @@ use anyhow::{Context, Result};
 use crate::model::Embedding;
 
 /// Header for the binary cache file format.
-/// Format: magic(4) + version(1) + dimensions(4 LE) + num_groups(4 LE)
-/// Per group: name_len(4 LE) + name(utf8) + num_embeddings(4 LE) + embedding_data(f32 LE)
+///
+/// Format: `magic(4) + version(1) + dimensions(4 LE) + num_groups(4 LE)`
+/// Per group: `name_len(4 LE) + name(utf8) + num_embeddings(4 LE) + embedding_data(f32 LE)`
 const CACHE_MAGIC: &[u8; 4] = b"CSN\x00";
 const CACHE_VERSION: u8 = 1;
 
